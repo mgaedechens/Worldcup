@@ -38,7 +38,52 @@
 
 ## Últimos cambios
 
-### Fecha: 2026-06-11
+### Fecha: 2026-06-11 (entrada 2 — datos)
+**Agente:** Claude Code (Opus 4.8)
+
+**Archivos modificados / creados:**
+- `src/data/download.py` — descarga `results.csv` + `shootouts.csv` (idempotente).
+- `src/data/clean.py` — limpieza, normalización de nombres, split jugados/futuros,
+  reconstrucción de grupos.
+- Generados: `data/processed/matches_clean.csv` (49.405 partidos jugados),
+  `data/external/wc2026_fixtures.csv` (72), `data/external/wc2026_groups.csv` (12×4=48).
+- `requirements.lock.txt` — versiones exactas (Py3.14: pandas 3.0.3, numpy 2.4.6, sklearn 1.9.0).
+
+**Cambios realizados:**
+- Entorno `venv` creado e instalado; **wheels de Py3.14 confirmadas** (riesgo cerrado).
+- Descarga y limpieza de datos ejecutadas y validadas.
+- **Hallazgo clave:** el dataset YA contiene el fixture oficial WC2026 (72 partidos con
+  marcador NaN). De ahí extrajimos los 48 equipos y los 12 grupos automáticamente.
+
+**Motivo:**
+- Separar descarga/limpieza en módulos reutilizables; tener un dataset de entrenamiento
+  limpio y la entrada de simulación listos antes de feature engineering.
+
+**Próximos pasos sugeridos:**
+1. `notebooks/01_eda.ipynb`: EDA sobre `matches_clean.csv` (goles, ventaja local,
+   cobertura temporal, decidir ventana de entrenamiento moderna p.ej. ≥1990/2002).
+2. `src/features/elo.py`: implementar Elo con K-factor ponderado por importancia de
+   torneo y diferencia de goles; backfill cronológico sobre `matches_clean.csv`.
+3. `src/features/build_features.py`: a nivel partido → diff de Elo, forma reciente
+   (últimos N), reposo/contexto, flag neutral. Encodear outcome {H,D,A}.
+
+**Problemas pendientes / advertencias:**
+- ⚠️ **Etiquetas de grupo A–L son arbitrarias** (orden alfabético), NO las oficiales FIFA.
+  La composición es correcta. Para el bracket de octavos (Día 3) hay que mapear a las
+  letras oficiales o definir la estructura del bracket de 48 equipos (32avos: 12 primeros
+  + 12 segundos + 8 mejores terceros). Decisión pendiente.
+- ⚠️ `matches_clean.csv` incluye historia muy antigua y posibles "selecciones" no-FIFA
+  (regiones). Filtrar ventana temporal y/o a miembros FIFA en la etapa de features.
+- ⚠️ Normalización de nombres es mínima/debatible (ver `TEAM_NAME_MAP` en `clean.py`).
+
+**Notas para el siguiente agente:**
+- Ejecuta `python -m src.data.download && python -m src.data.clean` para regenerar datos
+  (no están commiteados los `data/raw` ni `processed`; sí los `external`... revisar .gitignore).
+- Usa el intérprete del venv: `.venv/Scripts/python.exe`.
+
+---
+
+### Fecha: 2026-06-11 (entrada 1 — scaffolding)
 **Agente:** Claude Code (Opus 4.8)
 
 **Archivos modificados / creados:**
