@@ -38,6 +38,49 @@
 
 ## Últimos cambios
 
+### Fecha: 2026-06-11 (entrada 3 — EDA)
+**Agente:** Claude Code (Opus 4.8)
+
+**Archivos modificados / creados:**
+- `notebooks/01_eda.ipynb` — EDA ejecutado con outputs incrustados (4 secciones).
+- `reports/figures/01..04_*.png` — figuras generadas.
+- Kernel del venv registrado (`.venv/share/jupyter/kernels/python3`, vía `--sys-prefix`).
+
+**Hallazgos clave (con evidencia):**
+- **Outcomes globales:** Home 49.0% / Draw 22.7% / Away 28.3%. Avg goles/partido ≈ 2.94.
+- **Ventaja local REAL:** con local → victoria local 50.7% (visita 26.4%); en neutral →
+  44.2% (visita 33.4%). El flag `neutral` es informativo → será feature.
+- **Densidad temporal:** 65% de los partidos son ≥1990, 47% ≥2002, 32% ≥2010. Pre-1990 disperso.
+- **Cobertura de equipos WC2026:** algunos clasificados tienen poca historia reciente (ratings
+  más ruidosos) — caveat anotado.
+
+**Decisiones tomadas:**
+- ✅ **Ventana de entrenamiento = partidos desde 2002.** Justificación: densidad alta y era
+  moderna relevante, manteniendo ~20+ años de muestra. IMPORTANTE: el **Elo se calienta con
+  TODA la historia** (no cold-start); solo el *dataset de entrenamiento del clasificador* se
+  filtra a ≥2002.
+- ✅ Narrativa de notebooks en **inglés** (consistencia portfolio); explicaciones al usuario
+  en español por chat.
+
+**Próximos pasos sugeridos:**
+1. `src/features/elo.py`: Elo cronológico sobre TODA la historia. K-factor base ~32,
+   ponderado por importancia de torneo (Mundial > clasificatorio > amistoso) y margen de
+   goles. Ventaja local en la expectativa (~+65-100 pts Elo al local no-neutral).
+2. `src/features/build_features.py`: features a nivel partido (diff Elo pre-partido, forma
+   reciente últimos N, días de descanso, flag neutral) + target {H,D,A}. Filtrar a ≥2002.
+3. `notebooks/02_features.ipynb`: validar Elo (top teams históricos, evolución) y features.
+
+**Problemas pendientes / advertencias:**
+- ⚠️ (Sigue) Etiquetas de grupo A–L arbitrarias, no oficiales FIFA → afecta bracket de octavos.
+- ⚠️ CUIDADO con leakage temporal: el Elo de un partido debe ser el **PRE-partido** (estado
+  antes de jugarse), nunca incluir el resultado del propio partido.
+
+**Notas para el siguiente agente:**
+- Regenerar datos: `python -m src.data.download && python -m src.data.clean`.
+- Re-ejecutar EDA: `.venv/Scripts/python.exe -m jupyter nbconvert --to notebook --execute --inplace notebooks/01_eda.ipynb`.
+
+---
+
 ### Fecha: 2026-06-11 (entrada 2 — datos)
 **Agente:** Claude Code (Opus 4.8)
 
