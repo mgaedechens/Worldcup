@@ -38,6 +38,48 @@
 
 ## Últimos cambios
 
+### Fecha: 2026-06-11 (entrada 4 — Elo + features)
+**Agente:** Claude Code (Opus 4.8)
+
+**Archivos creados:**
+- `src/features/elo.py` — motor Elo (World Football Elo: ventaja local, MOV, peso de torneo).
+  Framing quant: Elo = estimador EWMA. Devuelve Elo PRE-partido (sin leakage).
+- `src/features/build_features.py` — tabla de features a nivel partido.
+- `notebooks/02_features.ipynb` — validación Elo + gráficos (ejecutado).
+- `reports/figures/05_top20_elo.png`, `06_elo_evolution.png`.
+- `data/processed/features.csv` (23.271 filas, 2002+; gitignored, regenerable).
+
+**Validaciones (pasadas):**
+- Top Elo actual = potencias reales (España, Argentina, Francia, Inglaterra, Brasil...). ✓
+- Evolución histórica coincide con dinastías (España 2008-12, Francia 2018-22). ✓
+- Sanity features: mean `elo_diff` por outcome → H:+141, D:−10, A:−157 (monótono). ✓
+- Class balance target: H 48.0% / A 28.7% / D 23.3%.
+
+**Features incluidas:** `elo_diff` (estrella), `form_diff` (forma PPG últimos 10),
+`rest_diff` (días de descanso), `is_neutral`. Target {H,D,A}.
+
+**Decisión quant integrada (a pedido del usuario — quiere aprender métodos CFA/quant):**
+- Elo = EWMA (memoria larga) + form = señal momentum corta (como combinar MA lenta/rápida).
+- PLAN de modelado quant: walk-forward backtesting (evitar look-ahead bias), proper scoring
+  rules (log loss, Brier), reliability/calibration (como backtesting de VaR), benchmark vs
+  baseline naïve. v2 opcional: comparación vs cuotas de mercado + Kelly (requiere datos de
+  cuotas, sin fuente gratuita limpia — pendiente).
+
+**Próximos pasos sugeridos:**
+1. `notebooks/03_modeling.ipynb` + `src/models/train.py`: HistGradientBoostingClassifier
+   con CALIBRACIÓN. Split TEMPORAL (train ≤2021, test 2022+ incl. Mundial 2022). Baselines:
+   Elo-logístico y "siempre local". Métricas: log loss, Brier multiclase, accuracy, calibración.
+2. Guardar modelo (`models/*.joblib`) + `src/models/predict.py` (probabilidades H/D/A).
+3. Day 3: `src/simulation/` Monte Carlo del torneo.
+
+**Advertencias para el siguiente agente:**
+- ⚠️ NO usar `train_test_split` aleatorio — DEBE ser temporal (cronológico) o hay leakage.
+- ⚠️ Calibrar probabilidades (`CalibratedClassifierCV` o `method='sigmoid/isotonic'`),
+  porque el Monte Carlo depende de probabilidades bien calibradas, no solo de accuracy.
+- ⚠️ (Sigue) Etiquetas de grupo A–L arbitrarias → bracket de octavos.
+
+---
+
 ### Fecha: 2026-06-11 (entrada 3 — EDA)
 **Agente:** Claude Code (Opus 4.8)
 
