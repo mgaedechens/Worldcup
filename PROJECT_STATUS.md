@@ -38,6 +38,53 @@
 
 ## Últimos cambios
 
+### Fecha: 2026-06-11 (entrada 5 — modelado)
+**Agente:** Claude Code (Opus 4.8)
+
+**Archivos creados:**
+- `src/models/train.py` — benchmark temporal + selección + modelo final.
+- `notebooks/03_modeling.ipynb` — historia completa con gráficos (ejecutado).
+- `reports/figures/07_model_benchmark.png`, `08_calibration.png`, `09_coefficients.png`.
+- `models/wc_model.joblib` — modelo final (gitignored, regenerable con `python -m src.models.train`).
+
+**Resultados (test out-of-time ≥2022, incl. Mundial 2022):**
+| Modelo | accuracy | log_loss | brier | rps |
+|---|---|---|---|---|
+| Baseline (base rates) | 0.478 | 1.050 | 0.633 | 0.228 |
+| Elo-only logistic | 0.596 | 0.879 | 0.517 | 0.173 |
+| GBDT (all features) | 0.598 | 0.877 | 0.516 | 0.172 |
+| **Logistic (all) ★ELEGIDO** | **0.599** | **0.8765** | **0.515** | **0.1718** |
+
+**Decisión clave (parsimonia / Occam):** el GBDT NO supera a la regresión logística →
+se elige la **logística** (más simple, mejor en todas las métricas propias, interpretable,
+bien calibrada). El `elo_diff` domina como predictor. Calibración validada (reliability
+diagram pega en la diagonal). Modelo final reentrenado con TODOS los datos para deployment.
+
+**Métodos quant aplicados:** split temporal (no look-ahead), benchmark vs naïve,
+proper scoring rules (log loss, Brier, **RPS**), reliability diagram (≈ backtesting VaR),
+parsimonia. Elo=EWMA. PENDIENTE v2: comparación vs cuotas + Kelly.
+
+**Próximos pasos sugeridos (Day 3 — la simulación, el payoff):**
+1. `src/simulation/` Monte Carlo: cargar `wc_model.joblib` + Elo actual de las 48 selecciones
+   + `wc2026_fixtures.csv` + grupos. Jugar el torneo N veces → P(título), P(llegar a cada fase).
+   - `predict.py`: dado dos equipos (sus Elo, neutral) → P(H/D/A). Mapear a P(local/empate/visita)
+     en cancha NEUTRAL (is_neutral=1, salvo sede USA/CAN/MEX como matiz opcional).
+   - Fase de grupos: 3 pts victoria, 1 empate; resolver desempates (pts, dif goles...). OJO:
+     necesitamos GOLES simulados, no solo W/D/L → opción: muestrear marcador con Poisson
+     calibrado por Elo, O resolver grupos por puntos con tie-break aleatorio simple (v1).
+2. `notebooks/04_simulation.ipynb`: tabla y gráfico de probabilidades de campeón (el entregable).
+3. README final con resultados + figuras.
+
+**Advertencias para el siguiente agente:**
+- ⚠️ **BRACKET DE OCTAVOS:** las etiquetas A–L siguen siendo arbitrarias. El formato 48 es
+  complejo (clasifican 1º, 2º + 8 mejores 3º; la estructura del cruce está predefinida por FIFA).
+  DECISIÓN PENDIENTE: (a) mapear a letras oficiales y usar el bracket oficial, o (b) v1
+  simplificada con un bracket plausible (documentando que es aproximado). Discutir con el usuario.
+- ⚠️ El modelo predice W/D/L, no goles. Para desempates de grupo necesitamos goles →
+  decidir método (Poisson por Elo recomendado) antes de codificar.
+
+---
+
 ### Fecha: 2026-06-11 (entrada 4 — Elo + features)
 **Agente:** Claude Code (Opus 4.8)
 
