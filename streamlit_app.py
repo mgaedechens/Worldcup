@@ -14,12 +14,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import joblib
-import numpy as np
 import pandas as pd
 import streamlit as st
 
 from src.features.elo import compute_elo
-from src.models.goals import implied_outcome_probs
 from src.simulation.engine import load_goals_params
 
 ROOT = Path(__file__).resolve().parent

@@ -16,6 +16,23 @@ every milestone so the morning state is always coherent and reversible.
 
 ## Timeline (newest first)
 
+### ✅ v2 additions (after v1 was finished)
+With v1 complete and solid, the night continued into high-value, low-risk enhancements:
+- **Interactive Streamlit dashboard** (`streamlit_app.py`): 3 tabs — title odds, group
+  explorer, and a live head-to-head predictor. Deployable on Streamlit Cloud for a clickable
+  CV demo. (Streamlit installed cleanly on Python 3.14.)
+- **Optional host-nation advantage** (`Context.host_bonus`, default 0 = neutral so the v1
+  headline is unchanged): an Elo boost for USA/Canada/Mexico, used for sensitivity analysis.
+- **Robustness notebook** (`05_robustness.ipynb`): (1) out-of-time skill is **flat** across
+  training windows 1990–2014 (RPS ≈ 0.1715–0.1719) → the 2002 cutoff is safe, not lucky;
+  (2) a plausible host boost lifts the hosts a few points but Spain/Argentina stay favorites.
+  Conclusion: the forecast is **stable** to both knobs examined.
+- **Code quality:** `ruff` clean across `src`, `tests`, `scripts`, dashboard.
+
+**Deliberately deferred (documented, not half-built):** Dixon-Coles draw correction (needs a
+custom MLE; left as a clean v3 item rather than risk buggy code unattended) and the
+bookmaker-odds + Kelly capstone (needs an odds data source).
+
 ### ✅ v1 COMPLETE — full pipeline finished
 The project is now an end-to-end, reproducible, tested forecast. A fresh clone runs
 `python scripts/run_pipeline.py` and produces the title probabilities.

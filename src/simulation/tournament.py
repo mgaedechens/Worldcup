@@ -87,14 +87,17 @@ def simulate_group_stage(ctx: Context, ratings: dict[str, float], rng: np.random
         stats = {t: {"pts": 0, "gf": 0, "ga": 0, "gd": 0} for t in teams}
         for home, away in ctx.group_fixtures[g]:
             gh, ga = simulate_scoreline(ratings[home], ratings[away], ctx.params, rng)
-            stats[home]["gf"] += gh; stats[home]["ga"] += ga
-            stats[away]["gf"] += ga; stats[away]["ga"] += gh
+            stats[home]["gf"] += gh
+            stats[home]["ga"] += ga
+            stats[away]["gf"] += ga
+            stats[away]["ga"] += gh
             if gh > ga:
                 stats[home]["pts"] += 3
             elif ga > gh:
                 stats[away]["pts"] += 3
             else:
-                stats[home]["pts"] += 1; stats[away]["pts"] += 1
+                stats[home]["pts"] += 1
+                stats[away]["pts"] += 1
         for t in teams:
             stats[t]["gd"] = stats[t]["gf"] - stats[t]["ga"]
 
