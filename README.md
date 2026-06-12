@@ -1,87 +1,143 @@
 # 🏆 World Cup 2026 Predictor
 
-> A reproducible, explainable machine-learning pipeline that estimates each national
-> team's probability of winning the **2026 FIFA World Cup** — built from 150+ years of
-> international match results.
+> A reproducible, **explainable** machine-learning pipeline that estimates each national
+> team's probability of winning the **2026 FIFA World Cup**, built from 150+ years of
+> international match results and a 10,000-run Monte Carlo simulation of the official bracket.
 
 *[Versión en español más abajo ↓](#-predictor-del-mundial-2026-español)*
 
-> ⚠️ **Status: v1 in progress.** This README documents the intended design; sections are
-> filled in as the pipeline is built. See [`PROJECT_STATUS.md`](PROJECT_STATUS.md) for the
-> live development log.
+![Python](https://img.shields.io/badge/python-3.12+-blue) ![Tests](https://img.shields.io/badge/tests-14%20passing-brightgreen) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
 
+## 🥇 Headline result
+
+10,000 simulated tournaments → probability of lifting the trophy:
+
+![Title probabilities](reports/figures/10_title_probabilities.png)
+
+| # | Team | Champion | Reaches Final | Reaches Semifinal |
+|---|------|---------:|--------------:|------------------:|
+| 1 | 🇪🇸 Spain | **27.7%** | 40.2% | 53.5% |
+| 2 | 🇦🇷 Argentina | 19.7% | 31.4% | 44.0% |
+| 3 | 🇫🇷 France | 10.3% | 19.0% | 35.0% |
+| 4 | 🏴 England | 7.3% | 14.0% | 26.6% |
+| 5 | 🇧🇷 Brazil | 5.0% | 11.1% | 23.3% |
+
+The favorite sits well under 50% — exactly as it should. Football is **low-signal,
+high-variance**, and the model embraces that uncertainty rather than faking confidence.
+
 ## Why this project
 
-Predicting a World Cup is a genuinely hard problem: football is **low-signal, high-variance**.
-The goal here is **not** to build an oracle, but to demonstrate a rigorous, end-to-end
-data-science process that is **explainable** and **reproducible** — the kind of work that
-holds up under scrutiny.
+The goal is **not** a crystal ball. It is to demonstrate a rigorous, end-to-end data-science
+process that is **explainable**, **reproducible**, and **honest about uncertainty** — the kind
+of work that holds up under scrutiny.
 
-## Approach
-
-A **hybrid** model that combines domain knowledge with machine learning:
-
-1. **Elo ratings** computed from historical matches capture each team's strength over time.
-2. Elo (plus recent form, match context, etc.) becomes a **feature** for a calibrated
-   **gradient-boosting classifier** that predicts `P(win / draw / loss)` for any matchup.
-3. A **Monte Carlo simulation** plays out the 48-team tournament thousands of times to
-   estimate each team's probability of reaching each stage and winning the title.
+## How it works
 
 ```
-results.csv (1872–2026) → cleaning → Elo + features → calibrated GBDT → Monte Carlo → P(title)
+results.csv (1872–2026)
+        │  clean + normalize
+        ▼
+   Elo ratings  ──►  match features (elo_diff, form, rest, neutral)
+        │                     │
+        │                     ▼
+        │            Logistic classifier  ── P(win/draw/loss), calibrated
+        │                     ▲
+        ▼                     │ cross-check (agree out-of-sample)
+   Poisson goals model ───────┘
+        │  scorelines
+        ▼
+   Monte Carlo × 10,000  (official FIFA 48-team bracket)
+        ▼
+   P(title) and P(reach each stage) per nation
 ```
 
-### Key design decisions
-| Decision | Choice | Rationale |
+**Two complementary models, cross-validated against each other:**
+- A **calibrated logistic classifier** predicts match outcomes (used for evaluation & rigor).
+- An **Elo-driven Poisson goals model** generates scorelines (used to drive the simulation,
+  giving coherent goal difference for group tie-breaks).
+
+The two are built independently yet agree on out-of-sample skill (log loss 0.8765 vs 0.8768),
+strong evidence the pipeline is internally consistent.
+
+### Key design decisions (with rationale)
+| Decision | Choice | Why |
 |---|---|---|
-| Model | Elo-as-feature + gradient boosting | Shows full ML pipeline *and* domain knowledge; explainable |
-| Classifier | `HistGradientBoostingClassifier` (scikit-learn) | Native to sklearn; avoids dependency/wheel risk |
-| Validation | **Temporal** split (past → future) | Prevents leakage; mirrors real predictive use |
-| Data | [`martj42/international_results`](https://github.com/martj42/international_results) | Free, no auth, fully reproducible |
+| Data | [`martj42/international_results`](https://github.com/martj42/international_results) | Free, no auth, reproducible |
+| Team strength | Elo (an EWMA estimator) | Long-memory, leakage-safe, interpretable |
+| Validation | **Temporal** split (train < 2022, test ≥ 2022) | No look-ahead bias |
+| Model | Logistic regression **over** gradient boosting | Parsimony: ties/beats GBDT, simpler & calibrated |
+| Scoring | Log loss, Brier, **RPS** | Proper scoring rules, not just accuracy |
+| Bracket | **Official** FIFA 2026 structure | Credible, matches reality |
 
-## Tech stack
+Full rationale lives in [`docs/decisions/`](docs/decisions/) as Architecture Decision Records.
 
-Python 3.12+ · pandas · NumPy · scikit-learn · matplotlib · seaborn · Jupyter
+## Results & analysis (notebooks)
+
+| Notebook | What it shows |
+|---|---|
+| [`01_eda.ipynb`](notebooks/01_eda.ipynb) | Data exploration: goals, home advantage, coverage |
+| [`02_features.ipynb`](notebooks/02_features.ipynb) | Elo engine + historic power evolution |
+| [`03_modeling.ipynb`](notebooks/03_modeling.ipynb) | Benchmark, model selection, calibration |
+| [`04_simulation.ipynb`](notebooks/04_simulation.ipynb) | Monte Carlo + title probabilities |
+
+<p align="center">
+  <img src="reports/figures/06_elo_evolution.png" width="49%" />
+  <img src="reports/figures/08_calibration.png" width="42%" />
+</p>
+
+*Left: Elo evolution of historic powers (peaks match real dynasties). Right: the classifier's
+probabilities are well-calibrated — when it says 70%, it happens ~70% of the time.*
+
+## Quickstart
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate              # Windows  (use: source .venv/bin/activate on macOS/Linux)
+pip install -r requirements.txt
+
+# Run the whole pipeline (download → clean → features → train → simulate):
+python scripts/run_pipeline.py
+
+# Or run the test suite:
+pytest
+```
 
 ## Project structure
 
 ```
 .
-├── data/
-│   ├── raw/          # downloaded source CSVs (git-ignored, reproducible)
-│   ├── processed/    # cleaned datasets (regenerated from raw)
-│   └── external/     # hand-curated WC2026 teams & fixtures
+├── data/                # raw (downloaded), processed (regenerated), external (WC2026 fixture)
 ├── src/
-│   ├── data/         # download + cleaning
-│   ├── features/     # Elo, form, feature engineering
-│   ├── models/       # training + evaluation
-│   └── simulation/   # Monte Carlo tournament
-├── notebooks/        # narrative analysis (EDA → modeling → simulation)
-├── reports/figures/  # generated visualizations
-└── tests/
+│   ├── data/            # download + cleaning
+│   ├── features/        # Elo + feature engineering
+│   ├── models/          # classifier + Poisson goals model
+│   └── simulation/      # bracket, match engine, tournament, Monte Carlo
+├── notebooks/           # narrative analysis (01 → 04)
+├── tests/               # pytest suite (invariants)
+├── docs/decisions/      # Architecture Decision Records
+├── reports/figures/     # generated visualizations
+└── scripts/run_pipeline.py
 ```
 
-## Getting started
+## Validation & rigor
+- **No leakage:** every feature is pre-match; the train/test split is strictly chronological.
+- **Proper scoring rules:** evaluated with log loss, multiclass Brier, and RPS — not accuracy alone.
+- **Calibration:** verified with a reliability diagram.
+- **Internal consistency:** the independent classifier and Poisson models agree out-of-sample.
+- **Tests:** 14 passing invariants (Elo zero-sum, distribution sums, one-champion-per-tournament, …).
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-pip install -r requirements.txt
-```
-
-*(Pipeline run instructions will be added as scripts land.)*
+## Honest limitations
+- Team-level only — no squad/injury/player data.
+- Hosts modeled on neutral ground (no home-crowd boost) — a documented refinement.
+- Independent Poisson slightly under-models draws (Dixon-Coles is the planned v2 fix).
+- Deep group tie-breaks resolved by lot, as in the real rules.
 
 ## Roadmap
-
-- [x] Repository scaffolding & development protocol
-- [ ] Data download & cleaning
-- [ ] Exploratory data analysis (EDA)
-- [ ] Feature engineering (Elo, recent form)
-- [ ] Model training & temporal evaluation
-- [ ] Monte Carlo tournament simulation
-- [ ] Visualizations & final documentation
+- [x] Data pipeline, EDA, Elo, classifier, Poisson model, Monte Carlo, official bracket, tests
+- [ ] *(v2)* Dixon-Coles draw correction & host-nation advantage
+- [ ] *(v2)* Compare model odds vs bookmaker-implied probabilities + Kelly staking (quant capstone)
 - [ ] *(v2)* Interactive Streamlit dashboard
 
 ---
@@ -89,32 +145,31 @@ pip install -r requirements.txt
 ## 🏆 Predictor del Mundial 2026 (Español)
 
 Pipeline de *machine learning* **reproducible y explicable** que estima la probabilidad de
-que cada selección gane el **Mundial 2026**, a partir de más de 150 años de resultados
-internacionales.
+que cada selección gane el **Mundial 2026**, a partir de 150+ años de resultados y una
+simulación **Monte Carlo de 10.000 torneos** sobre el cuadro oficial.
 
-### Por qué este proyecto
-Predecir un Mundial es difícil de verdad: el fútbol es de **baja señal y alta varianza**.
-El objetivo **no** es construir un oráculo, sino demostrar un proceso de ciencia de datos
-**riguroso, explicable y reproducible** de principio a fin.
+**Resultado principal:** 🇪🇸 España **27.7%** · 🇦🇷 Argentina 19.7% · 🇫🇷 Francia 10.3% ·
+🏴 Inglaterra 7.3% · 🇧🇷 Brasil 5.0%. El favorito queda **por debajo del 50%**, reflejando con
+honestidad la alta varianza del fútbol.
 
-### Enfoque
-Un modelo **híbrido** que combina conocimiento de dominio con *machine learning*:
-1. **Rating Elo** calculado desde los partidos históricos para medir la fuerza de cada selección.
-2. El Elo (más forma reciente y contexto) se usa como **feature** de un **clasificador de
-   gradient boosting calibrado** que predice `P(victoria / empate / derrota)`.
-3. Una **simulación Monte Carlo** juega el torneo de 48 equipos miles de veces para estimar
-   la probabilidad de cada selección de avanzar y de ser campeón.
+**Cómo funciona:** se calcula un **Elo** (fuerza histórica) de cada selección → alimenta un
+**clasificador logístico calibrado** (victoria/empate/derrota) y un **modelo de goles de
+Poisson** que genera marcadores → se simula el torneo 10.000 veces con el **cuadro oficial de
+FIFA** → se leen las probabilidades de campeón y de llegar a cada fase.
 
-### Cómo empezar
+**El punto clave:** el objetivo no es adivinar al campeón, sino demostrar un proceso de ciencia
+de datos **riguroso, explicable y reproducible**, honesto sobre la incertidumbre. Las decisiones
+de diseño están documentadas en [`docs/decisions/`](docs/decisions/).
+
+**Cómo correrlo:**
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
+python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
+python scripts/run_pipeline.py
 ```
-
-El registro de desarrollo vive en [`PROJECT_STATUS.md`](PROJECT_STATUS.md).
 
 ---
 
-*Built as a portfolio project demonstrating applied ML, data engineering, and reproducible
-research practices.*
+*Built as a portfolio project demonstrating applied ML, data engineering, statistics, and
+reproducible research practices. Co-developed with AI pair programmers (Claude Code / Gemini CLI)
+under a documented collaboration protocol — see [`PROJECT_STATUS.md`](PROJECT_STATUS.md).*

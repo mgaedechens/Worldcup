@@ -38,6 +38,53 @@
 
 ## Últimos cambios
 
+### Fecha: 2026-06-11 (entrada 6 — simulación + v1 COMPLETA) ✅
+**Agente:** Claude Code (Opus 4.8) — sesión autónoma nocturna
+
+**Estado: v1 funcional completa.** `python scripts/run_pipeline.py` corre todo de punta a punta.
+
+**Archivos creados:**
+- `src/simulation/{engine,bracket,tournament,montecarlo}.py` — simulación Monte Carlo completa.
+- `src/models/goals.py` — modelo Poisson de goles (ya existía de entrada 5b, integrado).
+- `notebooks/04_simulation.ipynb` — gráficos finales + verificación cruzada.
+- `tests/` (3 archivos, 14 tests, todos pasan) + `pytest.ini`.
+- `docs/decisions/` (protocolo + ADR 001–004), `OVERNIGHT_LOG.md`.
+- `scripts/run_pipeline.py`, `LICENSE` (MIT), `README.md` reescrito.
+- `reports/simulation_results.csv` + figuras 05–11.
+
+**Bracket oficial:** se obtuvieron los 12 grupos oficiales y el cruce 32avos→final (matches
+73–104). Mapeo a etiquetas oficiales por equipo "ancla" único (verificado). Asignación de
+mejores terceros vía matching con restricciones (`scipy.linear_sum_assignment`). ⚠️ RESUELTO
+el pendiente de "etiquetas de grupo arbitrarias".
+
+**Resultado (10.000 sims, seed 42):** España 27.7% · Argentina 19.7% · Francia 10.3% ·
+Inglaterra 7.3% · Brasil 5.0%. Probabilidades de campeón suman 1.0; reach R32 suma 32. ✓
+
+**Verificación cruzada:** clasificador logístico vs Poisson-implícito en test ≥2022 →
+log loss 0.8765 vs 0.8768, RPS 0.1718 vs 0.1720. Coinciden → consistencia interna. ✓
+
+**Bugs encontrados y corregidos autónomamente:**
+- Calibración isotónica empeoraba log loss → se eligió logística simple (ADR-003).
+- PoissonRegressor con overflow numérico → estandarizar features.
+- `np.math.factorial` eliminado en numpy 2 → `scipy.stats.poisson`.
+- Import path de `scripts/run_pipeline.py`.
+
+**Decisiones de simulación (ADR-004):** Mundial modelado en cancha neutral (sin ventaja de
+local para anfitriones) — simplificación documentada. Poisson independiente sub-modela
+empates ligeramente (Dixon-Coles = v2). Desempates profundos de grupo por sorteo (random).
+
+**Próximos pasos sugeridos (v2):**
+1. Corrección Dixon-Coles + ventaja de anfitrión (USA/CAN/MEX en sus sedes).
+2. Comparación vs cuotas de mercado + Kelly (capstone quant; requiere datos de cuotas).
+3. Dashboard Streamlit (link clickeable para el CV).
+4. Posible: análisis de sensibilidad a la ventana de entrenamiento (2002 vs otras).
+
+**Notas para el siguiente agente:**
+- Todo regenerable: `python scripts/run_pipeline.py`. Tests: `pytest`.
+- El repo está limpio, commiteado y pusheado a GitHub (`mgaedechens/Worldcup`).
+
+---
+
 ### Fecha: 2026-06-11 (entrada 5 — modelado)
 **Agente:** Claude Code (Opus 4.8)
 
