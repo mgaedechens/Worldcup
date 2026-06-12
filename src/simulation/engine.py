@@ -68,26 +68,43 @@ def simulate_scoreline(
     return int(rng.poisson(lam_a)), int(rng.poisson(lam_b))
 
 
-def knockout_winner(
+def _shootout_winner(
     team_a: str, team_b: str, ratings: dict[str, float],
     params: GoalsParams, rng: np.random.Generator,
 ) -> str:
-    """Decide a knockout match. A regulation draw is settled by a penalty shootout whose
-    probability is the teams' relative regulation win-strength (slight edge to the favorite,
-    but close to a coin flip — as real shootouts are)."""
-    ga, gb = simulate_scoreline(ratings[team_a], ratings[team_b], params, rng)
-    if ga > gb:
-        return team_a
-    if gb > ga:
-        return team_b
-    # Shootout: weight by each side's Poisson win probability so the favorite is mildly
-    # favored; if both are equal it is a true coin flip.
+    """Settle a level knockout match by a penalty shootout.
+
+    The probability is the teams' relative regulation win-strength, so the favorite is mildly
+    favored; if both are equal it is a true coin flip (as real shootouts nearly are)."""
     lam_a = params.lam(ratings[team_a] - ratings[team_b])
     lam_b = params.lam(ratings[team_b] - ratings[team_a])
-    # Quick implied win probabilities via small Poisson grids.
     g = np.arange(11)
     joint = np.outer(poisson.pmf(g, lam_a), poisson.pmf(g, lam_b))
     p_a_win = np.tril(joint, -1).sum()
     p_b_win = np.triu(joint, 1).sum()
     prob_a = 0.5 if (p_a_win + p_b_win) == 0 else p_a_win / (p_a_win + p_b_win)
     return team_a if rng.random() < prob_a else team_b
+
+
+def knockout_winner(
+    team_a: str, team_b: str, ratings: dict[str, float],
+    params: GoalsParams, rng: np.random.Generator,
+) -> str:
+    """Decide a knockout match (winner only)."""
+    ga, gb = simulate_scoreline(ratings[team_a], ratings[team_b], params, rng)
+    if ga > gb:
+        return team_a
+    if gb > ga:
+        return team_b
+    return _shootout_winner(team_a, team_b, ratings, params, rng)
+
+
+def knockout_result(
+    team_a: str, team_b: str, ratings: dict[str, float],
+    params: GoalsParams, rng: np.random.Generator,
+) -> tuple[str, int, int, bool]:
+    """Decide a knockout match and report detail: (winner, goals_a, goals_b, went_to_pens)."""
+    ga, gb = simulate_scoreline(ratings[team_a], ratings[team_b], params, rng)
+    if ga != gb:
+        return (team_a if ga > gb else team_b, ga, gb, False)
+    return (_shootout_winner(team_a, team_b, ratings, params, rng), ga, gb, True)

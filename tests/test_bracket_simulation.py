@@ -50,3 +50,20 @@ def test_tournament_has_exactly_one_champion_and_32_qualifiers():
     assert len(stage) == 32                      # exactly 32 teams reach the Round of 32
     assert sum(1 for s in stage.values() if s == 5) == 1  # one champion
     assert max(stage.values()) == 5
+
+
+def test_detailed_scenario_is_internally_consistent():
+    from src.simulation.scenario import simulate_scenario
+
+    ctx = _synthetic_context()
+    scen = simulate_scenario(ctx, np.random.default_rng(0))
+    all_teams = {t for teams in ctx.groups.values() for t in teams}
+
+    assert scen.champion in all_teams
+    assert len(scen.knockouts) == 31              # 16 + 8 + 4 + 2 + 1
+    assert all(len(rows) == 4 for rows in scen.group_tables.values())
+    for rows in scen.group_tables.values():
+        # 6 matches per group: total points is 18 (no draws) down to 12 (all draws).
+        assert 12 <= sum(r["pts"] for r in rows) <= 18
+        for r in rows:
+            assert r["pld"] == 3 and r["gd"] == r["gf"] - r["ga"]

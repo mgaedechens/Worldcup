@@ -12,11 +12,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import joblib
+import numpy as np
 import pandas as pd
 import streamlit as st
 
 from src.features.elo import compute_elo
 from src.simulation.engine import load_goals_params
+from src.simulation.scenario import simulate_scenario
+from src.simulation.tournament import build_context
 
 ROOT = Path(__file__).resolve().parent
 RESULTS = ROOT / "reports" / "simulation_results.csv"
@@ -131,6 +134,67 @@ div[data-baseweb="tab-highlight"]{ background-color:var(--accent)!important; hei
 .seg .sb{ background:linear-gradient(90deg,#C75B45,var(--red)); color:#1a0a06; }
 .seglabels{ display:flex; justify-content:space-between; margin-top:8px; color:var(--muted); font-size:.74rem; }
 
+/* Explanations / methodology */
+.lead{ color:var(--muted); font-size:.86rem; line-height:1.55; margin:-6px 0 18px; max-width:760px; }
+.prose{ color:var(--muted); line-height:1.7; font-size:.94rem; max-width:740px; }
+.prose b{ color:var(--text); }
+.sec{ font-family:'Oswald'; text-transform:uppercase; letter-spacing:2.5px; font-size:.76rem;
+  color:var(--accent); margin:30px 0 14px; }
+.steps{ display:flex; flex-direction:column; gap:10px; }
+.step{ display:grid; grid-template-columns:44px 1fr; gap:16px; align-items:start; background:var(--elev);
+  border:1px solid var(--border); border-radius:12px; padding:15px 18px; }
+.step .num{ font-family:'Oswald'; font-size:1.25rem; color:var(--accent); border:1px solid var(--border);
+  border-radius:9px; width:44px; height:44px; display:flex; align-items:center; justify-content:center; }
+.step .st-t{ font-family:'Oswald'; font-size:1.05rem; letter-spacing:.5px; }
+.step .st-d{ color:var(--muted); font-size:.87rem; margin-top:3px; line-height:1.55; }
+.step .st-d b{ color:var(--text); }
+.facts{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:6px; }
+.fact{ background:var(--elev); border:1px solid var(--border); border-radius:12px; padding:16px; }
+.fact .fv{ font-family:'IBM Plex Mono'; font-size:1.5rem; font-weight:600; color:var(--text); }
+.fact .fv.acc{ color:var(--accent2); }
+.fact .fl{ color:var(--muted); font-size:.75rem; margin-top:5px; line-height:1.45; }
+.limit{ border-left:2px solid var(--border); padding-left:16px; color:var(--muted); font-size:.9rem;
+  line-height:1.75; max-width:740px; }
+.limit b{ color:var(--text); }
+.repo{ display:inline-block; margin-top:6px; font-family:'Oswald'; letter-spacing:1.5px;
+  text-transform:uppercase; font-size:.76rem; color:var(--accent); border:1px solid var(--border);
+  border-radius:8px; padding:9px 16px; text-decoration:none; }
+.repo:hover{ border-color:var(--accent); }
+
+/* Scenario: champion banner + stats + bracket */
+.champ{ background:linear-gradient(180deg,rgba(242,193,78,.10),var(--elev)); border:1px solid rgba(242,193,78,.4);
+  border-radius:16px; padding:20px 24px; display:flex; align-items:center; gap:20px; margin:6px 0 18px; }
+.champ img{ width:74px; height:50px; border-radius:6px; box-shadow:0 0 0 1px rgba(255,255,255,.12); }
+.champ .cl{ font-family:'Oswald'; text-transform:uppercase; letter-spacing:3px; font-size:.72rem; color:var(--gold); }
+.champ .ct{ font-family:'Oswald'; font-size:2.1rem; font-weight:700; line-height:1.05; }
+.kflag{ width:22px; height:15px; border-radius:2px; object-fit:cover; box-shadow:0 0 0 1px rgba(255,255,255,.08); }
+.ko-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+.ko-grid.one{ grid-template-columns:minmax(280px,440px); justify-content:center; }
+.ko-card{ display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px;
+  background:var(--elev); border:1px solid var(--border); border-radius:10px; padding:8px 12px; }
+.ko-card.final{ border-color:rgba(242,193,78,.4); padding:12px 16px; }
+.ko-a{ display:flex; align-items:center; justify-content:flex-end; gap:8px; text-align:right; min-width:0; }
+.ko-b{ display:flex; align-items:center; gap:8px; min-width:0; }
+.ko-nm{ font-size:.86rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ko-nm.win{ color:var(--accent2); font-weight:700; }
+.ko-sc{ font-family:'IBM Plex Mono'; font-weight:600; min-width:46px; text-align:center; font-size:.9rem; }
+.ko-pens{ grid-column:1/-1; text-align:center; color:var(--faint); font-size:.64rem; letter-spacing:.5px; }
+
+/* Group standings tables */
+.gst-wrap{ display:grid; grid-template-columns:repeat(2,1fr); gap:18px 24px; }
+.gst-h{ font-family:'Oswald'; letter-spacing:1px; font-size:.92rem; margin:0 0 6px; color:var(--text); }
+.gst{ width:100%; border-collapse:collapse; }
+.gst th{ font-family:'Oswald'; font-weight:500; color:var(--faint); text-transform:uppercase;
+  font-size:.6rem; letter-spacing:1px; text-align:right; padding:3px 5px; border-bottom:1px solid var(--border); }
+.gst th.tm{ text-align:left; }
+.gst td{ padding:5px; text-align:right; border-bottom:1px solid rgba(38,49,61,.4);
+  font-family:'IBM Plex Mono'; font-size:.78rem; color:var(--muted); }
+.gst td.tm{ text-align:left; font-family:'Manrope'; font-weight:600; color:var(--text);
+  display:flex; align-items:center; gap:8px; }
+.gst td.pts{ color:var(--text); font-weight:600; }
+.gst tr.qual td.pts{ color:var(--accent2); }
+.gst tr.qual td.tm{ position:relative; }
+
 /* Footer */
 .foot{ margin-top:34px; padding-top:16px; border-top:1px solid var(--border); color:var(--faint);
   font-size:.74rem; line-height:1.6; }
@@ -168,6 +232,11 @@ def load_classifier():
 @st.cache_resource
 def load_goals():
     return load_goals_params()
+
+
+@st.cache_resource
+def load_context():
+    return build_context()
 
 
 # --------------------------------------------------------------------------- #
@@ -241,6 +310,148 @@ def h2h_html(a: str, b: str, p_a: float, p_d: float, p_b: float,
     )
 
 
+_ROUND_TITLES = [("R32", "Round of 32"), ("R16", "Round of 16"),
+                 ("QF", "Quarterfinals"), ("SF", "Semifinals"), ("F", "Final")]
+
+
+def _kflag(team: str) -> str:
+    code = FLAGS.get(team, "")
+    return f'<img class="kflag" src="https://flagcdn.com/w40/{code}.png" alt="{team}">' if code else ""
+
+
+def _ko_card(m, final: bool = False) -> str:
+    aw = " win" if m.winner == m.team_a else ""
+    bw = " win" if m.winner == m.team_b else ""
+    pens = '<div class="ko-pens">decided on penalties</div>' if m.pens else ""
+    cls = "ko-card final" if final else "ko-card"
+    return (
+        f'<div class="{cls}">'
+        f'<div class="ko-a"><span class="ko-nm{aw}">{m.team_a}</span>{_kflag(m.team_a)}</div>'
+        f'<div class="ko-sc">{m.goals_a}&ndash;{m.goals_b}</div>'
+        f'<div class="ko-b">{_kflag(m.team_b)}<span class="ko-nm{bw}">{m.team_b}</span></div>'
+        f'{pens}</div>'
+    )
+
+
+def champion_banner_html(scen) -> str:
+    code = FLAGS.get(scen.champion, "")
+    return (
+        f'<div class="champ"><img src="https://flagcdn.com/w160/{code}.png" alt="{scen.champion}">'
+        f'<div><div class="cl">Simulated champion</div>'
+        f'<div class="ct">{scen.champion}</div></div></div>'
+    )
+
+
+def scenario_stats_html(scen) -> str:
+    s = scen.stats
+    bw = s["biggest_win"]
+    facts = [
+        ("fv", str(s["total_goals"]), "goals scored"),
+        ("fv", str(s["avg_goals"]), "goals per match"),
+        ("fv", str(s["shootouts"]), "penalty shootouts"),
+        ("fv acc", f'{bw.goals_a}&ndash;{bw.goals_b}', f'biggest win &middot; {bw.team_a} v {bw.team_b}'),
+    ]
+    cells = "".join(
+        f'<div class="fact"><div class="{c}">{v}</div><div class="fl">{lbl}</div></div>'
+        for c, v, lbl in facts
+    )
+    return f'<div class="facts">{cells}</div>'
+
+
+def bracket_html(scen) -> str:
+    out = []
+    for key, title in _ROUND_TITLES:
+        ms = [m for m in scen.knockouts if m.round_key == key]
+        if not ms:
+            continue
+        grid_cls = "ko-grid one" if key == "F" else "ko-grid"
+        cards = "".join(_ko_card(m, final=(key == "F")) for m in ms)
+        out.append(f'<div class="sec">{title}</div><div class="{grid_cls}">{cards}</div>')
+    return "".join(out)
+
+
+def group_tables_html(scen) -> str:
+    blocks = []
+    for g, rows in scen.group_tables.items():
+        trs = []
+        for i, r in enumerate(rows):
+            q = "qual" if i < 2 else ""
+            trs.append(
+                f'<tr class="{q}"><td class="tm">{_kflag(r["team"])}{r["team"]}</td>'
+                f'<td>{r["pld"]}</td><td>{r["w"]}</td><td>{r["d"]}</td><td>{r["l"]}</td>'
+                f'<td>{r["gf"]}</td><td>{r["ga"]}</td><td>{r["gd"]:+d}</td>'
+                f'<td class="pts">{r["pts"]}</td></tr>'
+            )
+        blocks.append(
+            f'<div><div class="gst-h">Group {g}</div><table class="gst">'
+            f'<tr><th class="tm">Team</th><th>P</th><th>W</th><th>D</th><th>L</th>'
+            f'<th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr>'
+            f'{"".join(trs)}</table></div>'
+        )
+    return f'<div class="gst-wrap">{"".join(blocks)}</div>'
+
+
+_STEPS = [
+    ("Data", "Every <b>international match since 1872</b> (≈49,000 games) is downloaded and "
+             "cleaned. The official 2026 fixture, the 48 teams and the 12 groups are extracted "
+             "straight from the data."),
+    ("Team strength — Elo", "Each team carries an <b>Elo rating</b> (like chess) updated after "
+             "every match: beating a strong side earns a lot, losing to a weak one costs a lot. "
+             "Only the rating <b>before</b> a match is ever used, so the model can't peek at the future."),
+    ("Match model", "A <b>calibrated logistic regression</b> turns the Elo gap (plus recent form, "
+             "rest and venue) into win / draw / loss probabilities. It was benchmarked against "
+             "gradient boosting and <b>won</b> — so we kept the simpler, more transparent model."),
+    ("Goals model — Poisson", "An Elo-driven <b>Poisson model</b> simulates realistic scorelines. "
+             "This is what gives coherent goal difference for the group-stage tie-breaks."),
+    ("Monte Carlo", "The 48-team tournament is replayed <b>10,000 times</b> over the official FIFA "
+             "bracket. How often each nation wins becomes its title probability — 27.7% means it "
+             "won 2,770 of the 10,000 simulated tournaments."),
+]
+
+_FACTS = [
+    ("fv", "10,000", "tournaments simulated"),
+    ("fv", "≈49,000", "matches since 1872"),
+    ("fv acc", "0.172", "out-of-sample RPS (vs 0.228 baseline)"),
+    ("fv acc", "14/14", "automated tests passing"),
+]
+
+
+def methodology_html() -> str:
+    steps = "".join(
+        f'<div class="step"><div class="num">{i}</div><div><div class="st-t">{t}</div>'
+        f'<div class="st-d">{d}</div></div></div>'
+        for i, (t, d) in enumerate(_STEPS, 1)
+    )
+    facts = "".join(
+        f'<div class="fact"><div class="{cls}">{v}</div><div class="fl">{lbl}</div></div>'
+        for cls, v, lbl in _FACTS
+    )
+    return (
+        '<div class="prose">This project answers one question — <b>who will win the 2026 World '
+        'Cup, and with what probability?</b> — with a rigorous, reproducible pipeline rather than '
+        'a hot take. The aim is not a crystal ball (football is famously unpredictable) but an '
+        '<b>honest, explainable</b> forecast where every number traces back to data.</div>'
+        '<div class="sec">How the forecast is built</div>'
+        f'<div class="steps">{steps}</div>'
+        '<div class="sec">Why you can trust it</div>'
+        f'<div class="facts">{facts}</div>'
+        '<div class="prose" style="margin-top:14px">'
+        '<b>No look-ahead bias</b> — the model is trained on the past and tested on later, unseen '
+        'matches (2022+, including the last World Cup). <b>Well-calibrated</b> — when it says "70%", '
+        'that happens about 70% of the time. <b>Cross-checked</b> — two independent models (the '
+        'classifier and the Poisson goals model) agree out-of-sample. <b>Robust</b> — the result '
+        'barely moves when the training window or home-field assumptions are changed.</div>'
+        '<div class="sec">What it can\'t do</div>'
+        '<div class="limit">No player-level, squad or injury data — strength is purely team-level.<br>'
+        'World Cup matches are modelled on neutral ground (no host-crowd boost).<br>'
+        'It outputs <b>probabilities, not certainties</b>: a 28% favourite still loses most of the time.</div>'
+        '<div class="sec">Under the hood</div>'
+        '<div class="prose">Python · pandas · scikit-learn · NumPy/SciPy · Streamlit. Elo + calibrated '
+        'logistic regression + Poisson goals model + Monte Carlo. Fully documented and tested.</div>'
+        '<a class="repo" href="https://github.com/mgaedechens/Worldcup" target="_blank">View the code on GitHub</a>'
+    )
+
+
 def main() -> None:
     st.markdown(CSS, unsafe_allow_html=True)
     st.markdown(
@@ -257,13 +468,35 @@ def main() -> None:
         st.stop()
 
     results = load_results()
-    tab_race, tab_groups, tab_match = st.tabs(["Title race", "Groups", "Match predictor"])
+    tab_race, tab_bracket, tab_groups, tab_match, tab_how = st.tabs(
+        ["Title race", "Bracket", "Groups", "Match predictor", "How it works"])
 
     with tab_race:
+        st.markdown('<div class="lead">Each figure is the share of <b>10,000 simulated '
+                    'tournaments</b> that team won. The favourite still sits below 50% — football '
+                    'is high-variance. See the <b>How it works</b> tab for the full method.</div>',
+                    unsafe_allow_html=True)
         st.markdown(podium_html(results), unsafe_allow_html=True)
-        st.markdown('<h4 style="margin:6px 0 4px">Full championship odds</h4>', unsafe_allow_html=True)
+        st.markdown('<div class="sec">Full championship odds</div>', unsafe_allow_html=True)
         n = st.slider("Teams shown", 8, 48, 20, label_visibility="collapsed")
         st.markdown(leaderboard_html(results.head(n)), unsafe_allow_html=True)
+
+    with tab_bracket:
+        st.markdown('<div class="lead">A single simulated tournament with the exact scoreline of '
+                    'every match. The model is probabilistic, so this is <b>one of 10,000 possible '
+                    'outcomes</b> — re-roll to draw another. For each team\'s overall chances, see '
+                    'the <b>Title race</b> tab.</div>', unsafe_allow_html=True)
+        if "scenario_seed" not in st.session_state:
+            st.session_state.scenario_seed = 2
+        if st.button("Simulate another tournament"):
+            st.session_state.scenario_seed += 1
+        scen = simulate_scenario(load_context(),
+                                 np.random.default_rng(st.session_state.scenario_seed))
+        st.markdown(champion_banner_html(scen), unsafe_allow_html=True)
+        st.markdown(scenario_stats_html(scen), unsafe_allow_html=True)
+        st.markdown(bracket_html(scen), unsafe_allow_html=True)
+        st.markdown('<div class="sec">Group stage — final standings</div>', unsafe_allow_html=True)
+        st.markdown(group_tables_html(scen), unsafe_allow_html=True)
 
     with tab_groups:
         g = st.selectbox("Group", sorted(results["group"].unique()),
@@ -280,6 +513,9 @@ def main() -> None:
         clf = load_classifier()["model"]
         params = load_goals()
         teams = sorted(results["team"])
+        st.markdown('<div class="lead">A hypothetical neutral-venue match. Win / draw / loss come '
+                    'from the calibrated classifier; the scoreline is the Poisson model\'s expected '
+                    'goals. Both read from the same Elo ratings.</div>', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         a = c1.selectbox("Team A", teams, index=teams.index("Spain") if "Spain" in teams else 0)
         b = c2.selectbox("Team B", teams, index=teams.index("Brazil") if "Brazil" in teams else 1)
@@ -292,6 +528,9 @@ def main() -> None:
             lam_a, lam_b = params.lam(elo_diff), params.lam(-elo_diff)
             html = h2h_html(a, b, p_a, p_d, p_b, lam_a, lam_b, ratings[a], ratings[b])
             st.markdown(html, unsafe_allow_html=True)
+
+    with tab_how:
+        st.markdown(methodology_html(), unsafe_allow_html=True)
 
     st.markdown(
         '<div class="foot"><b>Methodology.</b> Elo ratings (full history) feed a calibrated logistic '
