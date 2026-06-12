@@ -31,3 +31,7 @@ models/*.joblib
 Thumbs.db
 .vscode/
 .idea/
+
+# --- Visual QA artifacts (screenshots, browser profiles) ---
+reports/chrome-qa-profile/
+reports/visual-*.png
