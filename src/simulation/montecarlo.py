@@ -25,9 +25,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
 
-def run_montecarlo(n: int = 10_000, seed: int = 42, ctx: Context | None = None) -> pd.DataFrame:
-    """Simulate ``n`` tournaments and return per-team stage-reach probabilities."""
+def run_montecarlo(
+    n: int = 10_000, seed: int = 42, ctx: Context | None = None,
+    host_bonus: float | None = None,
+) -> pd.DataFrame:
+    """Simulate ``n`` tournaments and return per-team stage-reach probabilities.
+
+    ``host_bonus`` optionally overrides the Elo boost given to host nations (default 0 keeps
+    the neutral v1 model); used by the robustness analysis.
+    """
     ctx = ctx or build_context()
+    if host_bonus is not None:
+        ctx.host_bonus = host_bonus
     rng = np.random.default_rng(seed)
 
     all_teams = [t for teams in ctx.groups.values() for t in teams]

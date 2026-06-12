@@ -81,6 +81,7 @@ Full rationale lives in [`docs/decisions/`](docs/decisions/) as Architecture Dec
 | [`02_features.ipynb`](notebooks/02_features.ipynb) | Elo engine + historic power evolution |
 | [`03_modeling.ipynb`](notebooks/03_modeling.ipynb) | Benchmark, model selection, calibration |
 | [`04_simulation.ipynb`](notebooks/04_simulation.ipynb) | Monte Carlo + title probabilities |
+| [`05_robustness.ipynb`](notebooks/05_robustness.ipynb) | Sensitivity: training window & host advantage |
 
 <p align="center">
   <img src="reports/figures/06_elo_evolution.png" width="49%" />

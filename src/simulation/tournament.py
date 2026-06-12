@@ -24,6 +24,9 @@ PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 EXTERNAL_DIR = PROJECT_ROOT / "data" / "external"
 
 
+HOST_NATIONS = frozenset({"United States", "Canada", "Mexico"})
+
+
 @dataclass
 class Context:
     """Everything needed to simulate, loaded once and reused across Monte Carlo runs."""
@@ -32,6 +35,15 @@ class Context:
     groups: dict[str, list[str]]               # official letter -> 4 teams
     group_fixtures: dict[str, list[tuple[str, str]]]  # letter -> 6 (home, away) pairs
     params: GoalsParams
+    hosts: frozenset[str] = HOST_NATIONS       # teams eligible for a host boost
+    host_bonus: float = 0.0                    # Elo points added to hosts (0 = neutral, v1 default)
+
+    def effective_ratings(self) -> dict[str, float]:
+        """Ratings with the optional host boost folded in (v2 'home World Cup' effect)."""
+        if self.host_bonus == 0.0:
+            return self.ratings
+        return {t: r + (self.host_bonus if t in self.hosts else 0.0)
+                for t, r in self.ratings.items()}
 
 
 def build_context() -> Context:
@@ -66,7 +78,7 @@ def _rank_group(teams, stats, rng):
     )
 
 
-def simulate_group_stage(ctx: Context, rng: np.random.Generator):
+def simulate_group_stage(ctx: Context, ratings: dict[str, float], rng: np.random.Generator):
     """Play all 72 group matches. Returns winners, runners-up, and ranked thirds."""
     winners, runners = {}, {}
     thirds: list[tuple[str, str, dict]] = []  # (group, team, stats)
@@ -74,7 +86,7 @@ def simulate_group_stage(ctx: Context, rng: np.random.Generator):
     for g, teams in ctx.groups.items():
         stats = {t: {"pts": 0, "gf": 0, "ga": 0, "gd": 0} for t in teams}
         for home, away in ctx.group_fixtures[g]:
-            gh, ga = simulate_scoreline(ctx.ratings[home], ctx.ratings[away], ctx.params, rng)
+            gh, ga = simulate_scoreline(ratings[home], ratings[away], ctx.params, rng)
             stats[home]["gf"] += gh; stats[home]["ga"] += ga
             stats[away]["gf"] += ga; stats[away]["ga"] += gh
             if gh > ga:
@@ -108,7 +120,8 @@ def simulate_tournament(ctx: Context, rng: np.random.Generator) -> dict[str, int
 
     Stage mapping: 0 reached R32, 1 R16, 2 QF, 3 SF, 4 Final, 5 Champion.
     """
-    winners, runners, thirds = simulate_group_stage(ctx, rng)
+    ratings = ctx.effective_ratings()
+    winners, runners, thirds = simulate_group_stage(ctx, ratings, rng)
     qualifying_thirds = _best_eight_thirds(thirds, rng)
     third_by_slot = assign_thirds_to_slots(qualifying_thirds)
 
@@ -127,7 +140,7 @@ def simulate_tournament(ctx: Context, rng: np.random.Generator) -> dict[str, int
     # Round of 32
     results: dict[int, str] = {}
     for mid, sa, sb in ROUND_OF_32:
-        w = knockout_winner(resolve(sa), resolve(sb), ctx.ratings, ctx.params, rng)
+        w = knockout_winner(resolve(sa), resolve(sb), ratings, ctx.params, rng)
         results[mid] = w
         stage[w] = 1
 
@@ -136,11 +149,11 @@ def simulate_tournament(ctx: Context, rng: np.random.Generator) -> dict[str, int
         (ROUND_OF_16, 2), (QUARTERFINALS, 3), (SEMIFINALS, 4),
     ):
         for mid, (fa, fb) in round_map.items():
-            w = knockout_winner(results[fa], results[fb], ctx.ratings, ctx.params, rng)
+            w = knockout_winner(results[fa], results[fb], ratings, ctx.params, rng)
             results[mid] = w
             stage[w] = reached
 
     champion = knockout_winner(results[FINAL_MATCH[0]], results[FINAL_MATCH[1]],
-                               ctx.ratings, ctx.params, rng)
+                               ratings, ctx.params, rng)
     stage[champion] = 5
     return stage
