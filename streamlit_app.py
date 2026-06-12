@@ -42,7 +42,7 @@ FLAGS: dict[str, str] = {
     "England": "gb-eng", "Croatia": "hr", "Panama": "pa", "Ghana": "gh",
 }
 
-st.set_page_config(page_title="World Cup 2026 — Forecast", layout="wide")
+st.set_page_config(page_title="World Cup 2026 Forecast", layout="wide")
 
 
 # --------------------------------------------------------------------------- #
@@ -179,6 +179,20 @@ div[data-baseweb="tab-highlight"]{ background-color:var(--accent)!important; hei
 .ko-nm.win{ color:var(--accent2); font-weight:700; }
 .ko-sc{ font-family:'IBM Plex Mono'; font-weight:600; min-width:46px; text-align:center; font-size:.9rem; }
 .ko-pens{ grid-column:1/-1; text-align:center; color:var(--faint); font-size:.64rem; letter-spacing:.5px; }
+
+/* Group match scorelines */
+.gm{ display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:center;
+  padding:4px 2px; border-bottom:1px solid rgba(38,49,61,.35); }
+.gm:last-child{ border-bottom:none; }
+.gm .a{ display:flex; justify-content:flex-end; gap:7px; align-items:center;
+  font-size:.78rem; color:var(--muted); min-width:0; }
+.gm .b{ display:flex; gap:7px; align-items:center; font-size:.78rem; color:var(--muted); min-width:0; }
+.gm .w{ color:var(--text); font-weight:600; }
+.gm .s{ font-family:'IBM Plex Mono'; font-size:.78rem; color:var(--text); font-weight:600;
+  min-width:38px; text-align:center; background:var(--elev2); border-radius:5px; padding:1px 4px; }
+.gm-h{ font-family:'Oswald'; font-weight:500; color:var(--faint); text-transform:uppercase;
+  font-size:.6rem; letter-spacing:1.5px; margin:10px 0 4px; }
+.gblock{ background:var(--elev); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
 
 /* Group standings tables */
 .gst-wrap{ display:grid; grid-template-columns:repeat(2,1fr); gap:18px 24px; }
@@ -370,6 +384,16 @@ def bracket_html(scen) -> str:
     return "".join(out)
 
 
+def _group_match_row(m) -> str:
+    hw = "w" if m.goals_h > m.goals_a else ""
+    aw = "w" if m.goals_a > m.goals_h else ""
+    return (
+        f'<div class="gm"><div class="a"><span class="{hw}">{m.home}</span>{_kflag(m.home)}</div>'
+        f'<div class="s">{m.goals_h}&ndash;{m.goals_a}</div>'
+        f'<div class="b">{_kflag(m.away)}<span class="{aw}">{m.away}</span></div></div>'
+    )
+
+
 def group_tables_html(scen) -> str:
     blocks = []
     for g, rows in scen.group_tables.items():
@@ -382,37 +406,72 @@ def group_tables_html(scen) -> str:
                 f'<td>{r["gf"]}</td><td>{r["ga"]}</td><td>{r["gd"]:+d}</td>'
                 f'<td class="pts">{r["pts"]}</td></tr>'
             )
+        matches = "".join(_group_match_row(m) for m in scen.group_matches[g])
         blocks.append(
-            f'<div><div class="gst-h">Group {g}</div><table class="gst">'
+            f'<div class="gblock"><div class="gst-h">Group {g}</div><table class="gst">'
             f'<tr><th class="tm">Team</th><th>P</th><th>W</th><th>D</th><th>L</th>'
             f'<th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr>'
-            f'{"".join(trs)}</table></div>'
+            f'{"".join(trs)}</table>'
+            f'<div class="gm-h">Results</div>{matches}</div>'
         )
     return f'<div class="gst-wrap">{"".join(blocks)}</div>'
 
 
 _STEPS = [
-    ("Data", "Every <b>international match since 1872</b> (≈49,000 games) is downloaded and "
-             "cleaned. The official 2026 fixture, the 48 teams and the 12 groups are extracted "
-             "straight from the data."),
-    ("Team strength — Elo", "Each team carries an <b>Elo rating</b> (like chess) updated after "
-             "every match: beating a strong side earns a lot, losing to a weak one costs a lot. "
-             "Only the rating <b>before</b> a match is ever used, so the model can't peek at the future."),
-    ("Match model", "A <b>calibrated logistic regression</b> turns the Elo gap (plus recent form, "
-             "rest and venue) into win / draw / loss probabilities. It was benchmarked against "
-             "gradient boosting and <b>won</b> — so we kept the simpler, more transparent model."),
-    ("Goals model — Poisson", "An Elo-driven <b>Poisson model</b> simulates realistic scorelines. "
-             "This is what gives coherent goal difference for the group-stage tie-breaks."),
-    ("Monte Carlo", "The 48-team tournament is replayed <b>10,000 times</b> over the official FIFA "
-             "bracket. How often each nation wins becomes its title probability — 27.7% means it "
-             "won 2,770 of the 10,000 simulated tournaments."),
+    ("Collect 150 years of football",
+     "Everything starts with a public dataset of every official international match since "
+     "1872, roughly <b>49,000 games</b>. We clean it carefully: dates are typed, country names "
+     "are unified across history (West Germany becomes Germany, Zaire becomes DR Congo) so each "
+     "nation keeps a single identity through time. A nice surprise hidden in the data: the 72 "
+     "scheduled group games of 2026 are already there, so the 48 qualified teams and the 12 "
+     "official groups come straight from the source instead of being typed by hand."),
+    ("Give every team a strength rating (Elo)",
+     "Each nation carries an <b>Elo rating</b>, the same idea chess uses. After every match the "
+     "winner takes points from the loser. The clever part is the asymmetry: beating a far "
+     "stronger side earns a lot, while beating a minnow earns almost nothing, so upsets move "
+     "the table and routine wins do not. Our version also weighs matches by importance (a World "
+     "Cup game moves ratings three times more than a friendly), by margin of victory (a 5-0 says "
+     "more than a 1-0) and gives home sides a bonus. One strict rule protects everything: when a "
+     "match is used for training, we only look at the ratings <b>before</b> kickoff. The model "
+     "never gets to peek at the result it is trying to predict."),
+    ("Learn how strength turns into results",
+     "With ratings in hand, a <b>logistic regression</b> learns the pattern from about 23,000 "
+     "modern matches (2002 onwards): given an Elo gap, recent form, rest days and venue, what is "
+     "the probability of a win, a draw or a loss? We also trained a fancier gradient boosting "
+     "model. It did <b>not</b> beat the simple one on any honest metric, so we kept the simple "
+     "one. That choice is deliberate: when two models score the same, the one you can explain "
+     "wins. Its probabilities are calibrated, meaning when it says 70%, history shows that "
+     "outcome really happens about 70% of the time."),
+    ("Turn probabilities into scorelines (Poisson)",
+     "Group standings need actual goals, not just results, because ties are broken on goal "
+     "difference. So a second model estimates how many goals each side should score, using the "
+     "<b>Poisson distribution</b>, the classic statistical model for rare counting events like "
+     "goals. A team's expected goals rise with its Elo advantage. Two evenly matched sides "
+     "average about 1.1 goals each; a heavy favourite pushes 2.3 while its rival drops to 0.5. "
+     "This model was built independently from the classifier, and the fact that both agree on "
+     "unseen matches is one of our strongest sanity checks."),
+    ("Play the World Cup 10,000 times (Monte Carlo)",
+     "One run plays all 104 matches: 72 group games with sampled scorelines, FIFA tie-breakers, "
+     "the ranking of best third-placed teams, then the official knockout bracket from the round "
+     "of 32 to the final, penalties included. Then we do it again. And again. <b>10,000 times.</b> "
+     "Counting how often each nation lifts the trophy gives its title probability: Spain at "
+     "27.7% means Spain won 2,770 of those 10,000 tournaments. The Bracket tab shows one of "
+     "these stories in full detail; the Simulator lets you deal new ones."),
+    ("Check the work",
+     "Before trusting any number we tested the pipeline the way a quant tests a trading model. "
+     "Trained on the past, evaluated only on later matches it had never seen (2022 onwards, "
+     "including the last World Cup). Scored with proper probability metrics, not just accuracy. "
+     "Stress-tested: changing the training window from 1990 to 2014 barely moves the skill, and "
+     "adding a host-nation boost lifts Mexico a few points without changing the favourites. "
+     "Plus <b>15 automated tests</b> guard the internals, from Elo being zero-sum to every "
+     "simulated tournament producing exactly one champion."),
 ]
 
 _FACTS = [
     ("fv", "10,000", "tournaments simulated"),
-    ("fv", "≈49,000", "matches since 1872"),
-    ("fv acc", "0.172", "out-of-sample RPS (vs 0.228 baseline)"),
-    ("fv acc", "14/14", "automated tests passing"),
+    ("fv", "49,000", "matches since 1872"),
+    ("fv acc", "0.172", "forecast skill (RPS) vs 0.228 naive baseline"),
+    ("fv acc", "15/15", "automated tests passing"),
 ]
 
 
@@ -427,27 +486,35 @@ def methodology_html() -> str:
         for cls, v, lbl in _FACTS
     )
     return (
-        '<div class="prose">This project answers one question — <b>who will win the 2026 World '
-        'Cup, and with what probability?</b> — with a rigorous, reproducible pipeline rather than '
-        'a hot take. The aim is not a crystal ball (football is famously unpredictable) but an '
-        '<b>honest, explainable</b> forecast where every number traces back to data.</div>'
-        '<div class="sec">How the forecast is built</div>'
+        '<div class="prose">This project answers one question: <b>who is most likely to win the '
+        '2026 World Cup?</b> It does not claim to know the future. Football is famously '
+        'unpredictable, and any tool that hands you a single guaranteed winner is lying to you. '
+        'What it offers instead is an honest forecast, built step by step from public data, '
+        'where every number on this dashboard can be traced back to its source. Here is the '
+        'whole journey, in plain words.</div>'
+        '<div class="sec">The pipeline, step by step</div>'
         f'<div class="steps">{steps}</div>'
         '<div class="sec">Why you can trust it</div>'
         f'<div class="facts">{facts}</div>'
         '<div class="prose" style="margin-top:14px">'
-        '<b>No look-ahead bias</b> — the model is trained on the past and tested on later, unseen '
-        'matches (2022+, including the last World Cup). <b>Well-calibrated</b> — when it says "70%", '
-        'that happens about 70% of the time. <b>Cross-checked</b> — two independent models (the '
-        'classifier and the Poisson goals model) agree out-of-sample. <b>Robust</b> — the result '
-        'barely moves when the training window or home-field assumptions are changed.</div>'
-        '<div class="sec">What it can\'t do</div>'
-        '<div class="limit">No player-level, squad or injury data — strength is purely team-level.<br>'
-        'World Cup matches are modelled on neutral ground (no host-crowd boost).<br>'
-        'It outputs <b>probabilities, not certainties</b>: a 28% favourite still loses most of the time.</div>'
+        'The test that matters most is simple: predict matches the model has never seen. On '
+        'every metric we tracked, it clearly beats naive guessing, and its probabilities mean '
+        'what they say. When two independently built models (the classifier and the goals model) '
+        'arrive at the same answer on unseen data, that agreement is hard to fake.</div>'
+        '<div class="sec">What it cannot do</div>'
+        '<div class="limit">It knows teams, not players: injuries, suspensions and squad form are '
+        'invisible to it.<br>'
+        'World Cup matches are treated as neutral ground, so the USA, Mexico and Canada get no '
+        'home-crowd boost in the headline numbers (we measured this separately: it lifts the '
+        'hosts a few points and changes little else).<br>'
+        'And above all, it outputs <b>probabilities, not certainties</b>. A 28% favourite still '
+        'loses the tournament 72% of the time. That is not a weakness of the model. That is '
+        'football.</div>'
         '<div class="sec">Under the hood</div>'
-        '<div class="prose">Python · pandas · scikit-learn · NumPy/SciPy · Streamlit. Elo + calibrated '
-        'logistic regression + Poisson goals model + Monte Carlo. Fully documented and tested.</div>'
+        '<div class="prose">Python, pandas, scikit-learn, NumPy, SciPy and Streamlit. Elo ratings '
+        'feed a calibrated logistic regression and a Poisson goals model, which drive a Monte '
+        'Carlo simulation of the official FIFA bracket. The whole pipeline is open source, '
+        'reproducible with one command, and documented decision by decision.</div>'
         '<a class="repo" href="https://github.com/mgaedechens/Worldcup" target="_blank">View the code on GitHub</a>'
     )
 
@@ -458,7 +525,7 @@ def main() -> None:
         '<div class="hero"><div class="hero-kicker">Predictive Model &middot; 2026 FIFA World Cup</div>'
         '<h1 class="hero-title">The Title Race</h1>'
         '<div class="hero-sub">Championship probabilities from 10,000 Monte Carlo simulations of the '
-        'official 48-team bracket — driven by 150 years of results, Elo ratings, and a calibrated '
+        'official 48-team bracket, driven by 150 years of results, Elo ratings and a calibrated '
         'machine-learning model.</div></div>',
         unsafe_allow_html=True,
     )
@@ -468,35 +535,51 @@ def main() -> None:
         st.stop()
 
     results = load_results()
-    tab_race, tab_bracket, tab_groups, tab_match, tab_how = st.tabs(
-        ["Title race", "Bracket", "Groups", "Match predictor", "How it works"])
+    tab_race, tab_bracket, tab_sim, tab_groups, tab_match, tab_how = st.tabs(
+        ["Title race", "Bracket", "Simulator", "Groups", "Match predictor", "How it works"])
 
     with tab_race:
         st.markdown('<div class="lead">Each figure is the share of <b>10,000 simulated '
-                    'tournaments</b> that team won. The favourite still sits below 50% — football '
-                    'is high-variance. See the <b>How it works</b> tab for the full method.</div>',
-                    unsafe_allow_html=True)
+                    'tournaments</b> that team won. Notice the favourite still sits below 50%: '
+                    'in football, nobody is ever safe. The <b>How it works</b> tab explains the '
+                    'full method.</div>', unsafe_allow_html=True)
         st.markdown(podium_html(results), unsafe_allow_html=True)
         st.markdown('<div class="sec">Full championship odds</div>', unsafe_allow_html=True)
         n = st.slider("Teams shown", 8, 48, 20, label_visibility="collapsed")
         st.markdown(leaderboard_html(results.head(n)), unsafe_allow_html=True)
 
-    with tab_bracket:
-        st.markdown('<div class="lead">A single simulated tournament with the exact scoreline of '
-                    'every match. The model is probabilistic, so this is <b>one of 10,000 possible '
-                    'outcomes</b> — re-roll to draw another. For each team\'s overall chances, see '
-                    'the <b>Title race</b> tab.</div>', unsafe_allow_html=True)
-        if "scenario_seed" not in st.session_state:
-            st.session_state.scenario_seed = 2
-        if st.button("Simulate another tournament"):
-            st.session_state.scenario_seed += 1
-        scen = simulate_scenario(load_context(),
-                                 np.random.default_rng(st.session_state.scenario_seed))
+    def render_scenario(scen) -> None:
         st.markdown(champion_banner_html(scen), unsafe_allow_html=True)
         st.markdown(scenario_stats_html(scen), unsafe_allow_html=True)
         st.markdown(bracket_html(scen), unsafe_allow_html=True)
-        st.markdown('<div class="sec">Group stage — final standings</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec">Group stage: standings and every result</div>',
+                    unsafe_allow_html=True)
         st.markdown(group_tables_html(scen), unsafe_allow_html=True)
+
+    with tab_bracket:
+        st.markdown('<div class="lead">The reference simulation: one complete tournament played '
+                    'out match by match, with the exact score of all 104 games, from the group '
+                    'stage to the final. It is fixed and reproducible (seed 2), and its champion '
+                    'matches the most likely winner from the Title race. Remember it is one '
+                    'plausible story among 10,000, not a certainty. Want to see how differently '
+                    'it can unfold? Open the <b>Simulator</b> tab.</div>',
+                    unsafe_allow_html=True)
+        render_scenario(simulate_scenario(load_context(), np.random.default_rng(2)))
+
+    with tab_sim:
+        st.markdown('<div class="lead">Here you can replay the World Cup as many times as you '
+                    'like. Every click deals a brand-new tournament from the same probability '
+                    'model: sometimes the favourite cruises, sometimes a dark horse lifts the '
+                    'trophy. That spread is not a bug, it is exactly what a 27.7% favourite '
+                    'means.</div>', unsafe_allow_html=True)
+        if "sim_seed" not in st.session_state:
+            st.session_state.sim_seed = 100
+        if st.button("Simulate a new tournament"):
+            st.session_state.sim_seed += 1
+        st.markdown(f'<div class="gm-h" style="margin:2px 0 10px">Simulation '
+                    f'#{st.session_state.sim_seed - 99}</div>', unsafe_allow_html=True)
+        render_scenario(simulate_scenario(load_context(),
+                                          np.random.default_rng(st.session_state.sim_seed)))
 
     with tab_groups:
         g = st.selectbox("Group", sorted(results["group"].unique()),
@@ -533,9 +616,9 @@ def main() -> None:
         st.markdown(methodology_html(), unsafe_allow_html=True)
 
     st.markdown(
-        '<div class="foot"><b>Methodology.</b> Elo ratings (full history) feed a calibrated logistic '
-        'classifier and an Elo-driven Poisson goals model; the tournament is simulated 10,000 times '
-        'over the official FIFA bracket. Probabilities, not predictions — football is high-variance.<br>'
+        '<div class="foot"><b>Methodology.</b> Elo ratings built from the full match history feed a '
+        'calibrated logistic classifier and a Poisson goals model; the tournament is then simulated '
+        '10,000 times over the official FIFA bracket. The output is probabilities, never certainties.<br>'
         'Neutral venues assumed. Flags via flagcdn.com. Not affiliated with FIFA.</div>',
         unsafe_allow_html=True,
     )

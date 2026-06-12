@@ -38,8 +38,17 @@ class KOMatch:
 
 
 @dataclass
+class GroupMatch:
+    home: str
+    away: str
+    goals_h: int
+    goals_a: int
+
+
+@dataclass
 class Scenario:
     group_tables: dict[str, list[dict]]      # letter -> ordered standings rows
+    group_matches: dict[str, list[GroupMatch]]  # letter -> the 6 played fixtures
     knockouts: list[KOMatch]
     champion: str
     stats: dict = field(default_factory=dict)
@@ -54,6 +63,7 @@ def simulate_scenario(ctx: Context, rng: np.random.Generator) -> Scenario:
     params = ctx.params
 
     group_tables: dict[str, list[dict]] = {}
+    group_matches: dict[str, list[GroupMatch]] = {}
     winners, runners = {}, {}
     thirds: list[tuple[str, str, dict]] = []
     total_goals = 0
@@ -61,8 +71,10 @@ def simulate_scenario(ctx: Context, rng: np.random.Generator) -> Scenario:
     # --- Group stage -------------------------------------------------------- #
     for g, teams in ctx.groups.items():
         rows = {t: _standings_row(t) for t in teams}
+        group_matches[g] = []
         for home, away in ctx.group_fixtures[g]:
             gh, ga = simulate_scoreline(ratings[home], ratings[away], params, rng)
+            group_matches[g].append(GroupMatch(home, away, gh, ga))
             total_goals += gh + ga
             for t, gf, gag in ((home, gh, ga), (away, ga, gh)):
                 rows[t]["pld"] += 1
@@ -127,4 +139,4 @@ def simulate_scenario(ctx: Context, rng: np.random.Generator) -> Scenario:
         "shootouts": shootouts,
         "biggest_win": biggest,
     }
-    return Scenario(group_tables, knockouts, champion, stats)
+    return Scenario(group_tables, group_matches, knockouts, champion, stats)

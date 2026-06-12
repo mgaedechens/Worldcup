@@ -111,13 +111,15 @@ streamlit run streamlit_app.py
 ## 🖥️ Interactive dashboard
 
 `streamlit run streamlit_app.py` opens a polished dark, editorial dashboard (real team flags,
-no clutter) with five views:
+no clutter) with six views:
 - **Title race** — championship odds for all 48 teams, with a top-3 podium.
-- **Bracket** — a full simulated tournament with the exact scoreline of every knockout match,
-  group standings, and tournament stats; re-roll to draw another of the 10,000 scenarios.
+- **Bracket** — the fixed reference simulation: all 104 matches with exact scorelines, full
+  group standings with every result, knockout tree and tournament stats.
+- **Simulator** — deal brand-new tournaments from the same model, one click each, to *see*
+  what a 27.7% favourite really means.
 - **Groups** — per-group advance probabilities.
 - **Match predictor** — pick any two teams for win/draw/loss probabilities and an expected scoreline.
-- **How it works** — a built-in methodology walkthrough so the model explains itself.
+- **How it works** — a plain-language, step-by-step methodology so the model explains itself.
 
 Deployable for free on [Streamlit Community Cloud](https://streamlit.io/cloud) for a clickable CV demo.
 

@@ -38,6 +38,44 @@
 
 ## Últimos cambios
 
+### Fecha: 2026-06-12 (entrada 7 — dashboard final, CIERRE DE FASE) ✅
+**Agente:** Claude Code
+
+**Estado: proyecto COMPLETO y pulido.** Dashboard profesional de 6 pestañas, 15 tests, ruff
+limpio, todo verificado con AppTest y pusheado.
+
+**Cambios de esta entrada:**
+- `src/simulation/scenario.py`: ahora registra los **72 marcadores de fase de grupos**
+  (`GroupMatch`) además de los 31 de eliminatorias.
+- `streamlit_app.py` rediseño final:
+  - Pestaña **Bracket** = UNA simulación de referencia FIJA (seed 2, campeón = España,
+    coincide con el favorito modal). Reproducible.
+  - Pestaña **Simulator** (nueva, separada) = botón para generar torneos nuevos (contador
+    de simulación visible).
+  - Tablas de grupo ahora incluyen **todos los resultados con marcador** (filas `gm`),
+    ganador resaltado, dentro de tarjetas `gblock`.
+  - **How it works reescrito**: 6 pasos en tono humano y profundo (datos → Elo → clasificador
+    → Poisson → Monte Carlo → validación), sin em-dashes en todo el copy visible.
+  - Facts actualizados (15/15 tests).
+- README actualizado (6 pestañas).
+
+**Verificación:** AppTest 6 tabs sin excepción (incl. click del botón Simulator), 15/15
+pytest, ruff limpio, 12 bloques de grupo × 72 marcadores confirmados en HTML.
+
+**Próximos pasos sugeridos (cuando se retome):**
+1. **Deploy a Streamlit Community Cloud** (el repo está listo; falta resolver que
+   `data/processed` y `models/` se regeneren en el arranque o se incluyan: opción simple =
+   script de setup que corre `run_pipeline.py` si faltan artefactos, o commitear los 3
+   artefactos pequeños necesarios).
+2. Dixon-Coles, cuotas de mercado + Kelly, sensibilidad adicional (ver entradas previas).
+
+**Notas para el siguiente agente:**
+- El dashboard usa SOLO builders HTML puros (testeables sin servidor) + `AppTest` para
+  integración. Mantener ese patrón.
+- Tras editar módulos en `src/`, REINICIAR streamlit (Ctrl+C y relanzar), no basta Rerun.
+
+---
+
 ### Fecha: 2026-06-11 (entrada 6 — simulación + v1 COMPLETA) ✅
 **Agente:** Claude Code (Opus 4.8) — sesión autónoma nocturna
 
