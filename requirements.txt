@@ -20,5 +20,5 @@ requests>=2.31
 pytest>=8.0
 ruff>=0.5
 
-# --- v2 (commented until needed) ---
-# streamlit>=1.36
+# Interactive dashboard
+streamlit>=1.36

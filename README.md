@@ -102,7 +102,17 @@ python scripts/run_pipeline.py
 
 # Or run the test suite:
 pytest
+
+# Or launch the interactive dashboard:
+streamlit run streamlit_app.py
 ```
+
+## 🖥️ Interactive dashboard
+
+`streamlit run streamlit_app.py` opens a 3-tab app: **title odds** for all 48 teams, a
+**group explorer** with advance probabilities, and a **head-to-head predictor** (pick any two
+teams to see win/draw/loss probabilities and an expected scoreline). Deployable for free on
+[Streamlit Community Cloud](https://streamlit.io/cloud) for a clickable CV demo.
 
 ## Project structure
 
@@ -136,9 +146,9 @@ pytest
 
 ## Roadmap
 - [x] Data pipeline, EDA, Elo, classifier, Poisson model, Monte Carlo, official bracket, tests
+- [x] Interactive Streamlit dashboard (`streamlit_app.py`)
 - [ ] *(v2)* Dixon-Coles draw correction & host-nation advantage
 - [ ] *(v2)* Compare model odds vs bookmaker-implied probabilities + Kelly staking (quant capstone)
-- [ ] *(v2)* Interactive Streamlit dashboard
 
 ---
 
