@@ -35,3 +35,9 @@ Thumbs.db
 # --- Visual QA artifacts (screenshots, browser profiles) ---
 reports/chrome-qa-profile/
 reports/visual-*.png
+
+# --- Deployment artifacts (committed so Streamlit Cloud can boot without running the
+#     full pipeline; all three are reproducible via scripts/run_pipeline.py) ---
+!data/processed/matches_clean.csv
+!models/wc_model.joblib
+!models/goals_model.joblib

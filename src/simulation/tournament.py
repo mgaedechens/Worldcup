@@ -26,6 +26,17 @@ EXTERNAL_DIR = PROJECT_ROOT / "data" / "external"
 
 HOST_NATIONS = frozenset({"United States", "Canada", "Mexico"})
 
+# Per-tournament rating uncertainty (Elo points). An Elo rating is an estimate, not a truth:
+# if a team's rating is off by some amount, that SAME error repeats across all of its matches
+# in a tournament, compounding into overconfident title odds. Drawing each team's "true
+# strength" once per simulated tournament from N(rating, sigma) models exactly that
+# correlated error. Sigma was calibrated by sweeping candidates (scripts/calibrate_sigma.py,
+# evidence in reports/sigma_calibration.csv) against the external benchmark: the betting
+# market and the historical record both put the World Cup favorite at ~15-20%. Sigma=125
+# lands the favorite at ~19% (inside the band) while preserving the model's own signal.
+# See docs/decisions/ADR-005.
+STRENGTH_NOISE = 125.0
+
 
 @dataclass
 class Context:
@@ -33,17 +44,27 @@ class Context:
 
     ratings: dict[str, float]                  # current Elo for the 48 teams
     groups: dict[str, list[str]]               # official letter -> 4 teams
-    group_fixtures: dict[str, list[tuple[str, str]]]  # letter -> 6 (home, away) pairs
+    # letter -> 6 fixtures as (home, away, home_is_host): the last flag is 1 only when the
+    # dataset marks the venue as non-neutral (hosts USA/Canada/Mexico playing at home).
+    group_fixtures: dict[str, list[tuple[str, str, int]]]
     params: GoalsParams
     hosts: frozenset[str] = HOST_NATIONS       # teams eligible for a host boost
-    host_bonus: float = 0.0                    # Elo points added to hosts (0 = neutral, v1 default)
+    host_bonus: float = 0.0                    # extra flat Elo for hosts (sensitivity knob)
+    strength_noise: float = STRENGTH_NOISE     # per-tournament rating uncertainty (Elo pts)
 
     def effective_ratings(self) -> dict[str, float]:
-        """Ratings with the optional host boost folded in (v2 'home World Cup' effect)."""
+        """Ratings with the optional host boost folded in (sensitivity analyses)."""
         if self.host_bonus == 0.0:
             return self.ratings
         return {t: r + (self.host_bonus if t in self.hosts else 0.0)
                 for t, r in self.ratings.items()}
+
+    def tournament_strengths(self, rng: np.random.Generator) -> dict[str, float]:
+        """One realization of every team's strength for a single simulated tournament."""
+        base = self.effective_ratings()
+        if self.strength_noise <= 0:
+            return base
+        return {t: r + rng.normal(0.0, self.strength_noise) for t, r in base.items()}
 
 
 def build_context() -> Context:
@@ -57,11 +78,14 @@ def build_context() -> Context:
 
     team_to_group = {t: g for g, teams in groups.items() for t in teams}
     fixtures = pd.read_csv(EXTERNAL_DIR / "wc2026_fixtures.csv")
-    group_fixtures: dict[str, list[tuple[str, str]]] = {g: [] for g in groups}
-    for home, away in zip(fixtures["home_team"], fixtures["away_team"]):
+    group_fixtures: dict[str, list[tuple[str, str, int]]] = {g: [] for g in groups}
+    neutral = fixtures["neutral"].astype(str).str.lower().eq("true") | fixtures["neutral"].eq(True)
+    for home, away, neu in zip(fixtures["home_team"], fixtures["away_team"], neutral):
         g = team_to_group.get(home)
         if g is not None and team_to_group.get(away) == g:
-            group_fixtures[g].append((home, away))
+            # The dataset marks hosts' own-stadium games as non-neutral; we pass that flag to
+            # the goals model, whose home-advantage coefficient was FIT on 150y of data.
+            group_fixtures[g].append((home, away, int(not neu)))
 
     return Context(ratings, groups, group_fixtures, load_goals_params())
 
@@ -85,8 +109,9 @@ def simulate_group_stage(ctx: Context, ratings: dict[str, float], rng: np.random
 
     for g, teams in ctx.groups.items():
         stats = {t: {"pts": 0, "gf": 0, "ga": 0, "gd": 0} for t in teams}
-        for home, away in ctx.group_fixtures[g]:
-            gh, ga = simulate_scoreline(ratings[home], ratings[away], ctx.params, rng)
+        for home, away, h_host in ctx.group_fixtures[g]:
+            gh, ga = simulate_scoreline(ratings[home], ratings[away], ctx.params, rng,
+                                        a_is_home=h_host)
             stats[home]["gf"] += gh
             stats[home]["ga"] += ga
             stats[away]["gf"] += ga
@@ -123,7 +148,7 @@ def simulate_tournament(ctx: Context, rng: np.random.Generator) -> dict[str, int
 
     Stage mapping: 0 reached R32, 1 R16, 2 QF, 3 SF, 4 Final, 5 Champion.
     """
-    ratings = ctx.effective_ratings()
+    ratings = ctx.tournament_strengths(rng)
     winners, runners, thirds = simulate_group_stage(ctx, ratings, rng)
     qualifying_thirds = _best_eight_thirds(thirds, rng)
     third_by_slot = assign_thirds_to_slots(qualifying_thirds)

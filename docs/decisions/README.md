@@ -30,3 +30,4 @@ Numbered sequentially, immutable once accepted (supersede with a new ADR rather 
 - [ADR-002](ADR-002-training-window.md) — Training window (2002+) with full-history Elo warm-up
 - [ADR-003](ADR-003-model-selection.md) — Logistic regression over gradient boosting (parsimony)
 - [ADR-004](ADR-004-simulation-design.md) — Poisson goals model + official FIFA bracket
+- [ADR-005](ADR-005-rating-uncertainty.md) — Per-tournament rating uncertainty (σ=125) + data-fitted host advantage + results sidecar guard

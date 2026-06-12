@@ -38,7 +38,7 @@ def _synthetic_context() -> Context:
         for k, t in enumerate(teams):
             ratings[t] = 1500 + 20 * k  # mild spread so ranking is non-degenerate
     group_fixtures = {
-        letter: [(teams[i], teams[j]) for i in range(4) for j in range(i + 1, 4)]
+        letter: [(teams[i], teams[j], 0) for i in range(4) for j in range(i + 1, 4)]
         for letter, teams in groups.items()
     }
     return Context(ratings, groups, group_fixtures, GoalsParams(0.1, 0.001, 0.0))
@@ -50,6 +50,16 @@ def test_tournament_has_exactly_one_champion_and_32_qualifiers():
     assert len(stage) == 32                      # exactly 32 teams reach the Round of 32
     assert sum(1 for s in stage.values() if s == 5) == 1  # one champion
     assert max(stage.values()) == 5
+
+
+def test_find_reference_seed_matches_target_champion():
+    from src.simulation.montecarlo import find_reference_seed
+    from src.simulation.scenario import simulate_scenario
+
+    ctx = _synthetic_context()
+    target = simulate_scenario(ctx, np.random.default_rng(0)).champion
+    seed = find_reference_seed(ctx, target)
+    assert simulate_scenario(ctx, np.random.default_rng(seed)).champion == target
 
 
 def test_detailed_scenario_is_internally_consistent():

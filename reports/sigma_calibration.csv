@@ -1,0 +1,6 @@
+sigma,favorite,favorite_prob,second,second_prob,top4_prob_sum,mexico_prob,n_sims,seconds
+0,Spain,0.263,Argentina,0.188,0.6382,0.0195,4000,4.4
+75,Spain,0.2378,Argentina,0.1798,0.5755,0.015,4000,7.4
+100,Spain,0.2088,Argentina,0.1618,0.5408,0.018,4000,8.7
+125,Spain,0.1932,Argentina,0.1475,0.5015,0.0243,4000,7.0
+150,Spain,0.1732,Argentina,0.124,0.4598,0.0243,4000,7.3

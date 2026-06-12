@@ -38,6 +38,52 @@
 
 ## Últimos cambios
 
+### Fecha: 2026-06-12 (entrada 8 — auditoría de consistencia + realismo calibrado + Validation tab) ✅
+**Agente:** Claude Code (Fable 5)
+
+**Origen:** auditoría solicitada por el usuario — Title Race y Bracket mostraban números
+inconsistentes. Causa raíz encontrada: cambios del motor (σ de incertidumbre + ventaja de
+anfitrión) quedaron sin commitear de una sesión interrumpida, mientras el CSV cacheado
+(`reports/simulation_results.csv`) seguía generado por el motor viejo. **No era un bug de
+cálculo: era divergencia artefacto/motor.**
+
+**Cambios (ver ADR-005):**
+- **σ = 125 calibrado con evidencia** (`scripts/calibrate_sigma.py` →
+  `reports/sigma_calibration.csv`): barrido 0/75/100/125/150 contra benchmark de mercado e
+  histórico (favorito ~15-20%). Cada torneo simulado sortea fuerzas ~N(Elo, σ).
+- **Ventaja de anfitrión data-driven:** los 9 partidos de grupos que el fixture marca como
+  no-neutrales (USA/CAN/MEX en casa) usan el coeficiente de localía del modelo Poisson.
+- **Sidecar `simulation_results.meta.json`:** ata el CSV a los parámetros del motor
+  (n, seed, σ, host, favorito, reference_seed). El dashboard compara y avisa si divergen.
+- **Reference seed programático:** `find_reference_seed()` elige el seed del Bracket para
+  que su campeón = favorito modal (era un "2" hardcodeado que quedó obsoleto — la
+  inconsistencia visible). Hoy: seed 5.
+- **Nueva pestaña "Validation":** benchmark out-of-time del modelo
+  (`reports/model_benchmark.csv`, exportado por `train.py`), reliability diagram, y la tabla
+  del barrido de σ. Evidencia pública de que nada fue "al ojo".
+- Copy del dashboard ahora **dinámico** (favorito/probabilidad leídos del CSV, no hardcodeados).
+- **Resultados nuevos (10k, seed 42):** España 19.5% · Argentina 14.4% · Francia 9.0% ·
+  Inglaterra 6.2% · Brasil 5.1% · México 2.2%. README actualizado (EN+ES).
+- **Deploy-ready:** excepciones en .gitignore para commitear `matches_clean.csv` (3.7MB) y
+  los 2 `.joblib` → Streamlit Cloud puede bootear sin correr el pipeline.
+- Tests: 16/16 (nuevo: `find_reference_seed`). Ruff limpio. AppTest 7 tabs sin excepción y
+  sin warnings (guardia verde). Notebooks 04/05 re-ejecutados con el motor final.
+
+**Commits de esta sesión:** (1) UI warm theme de Codex/Gemini (solo CSS, auditada) +
+gitignore QA; (2) motor+calibración+artefactos+docs atómico; (3) artefactos de deploy.
+
+**Próximos pasos sugeridos:**
+1. Usuario despliega en share.streamlit.io (repo listo; instrucciones en README).
+2. v3: Dixon-Coles, cuotas reales + Kelly (capstone quant).
+
+**Notas para el siguiente agente:**
+- La fuente única de verdad es el motor (`Context` + `simulate_*`); el CSV es caché del
+  mismo proceso, SIEMPRE regenerar con `python -m src.simulation.montecarlo` tras tocar el
+  motor (la guardia del sidecar avisará en el dashboard si se olvida).
+- `STRENGTH_NOISE` vive en `tournament.py`; si se cambia, re-correr calibración y MC.
+
+---
+
 ### Fecha: 2026-06-12 (entrada 7 — dashboard final, CIERRE DE FASE) ✅
 **Agente:** Claude Code
 

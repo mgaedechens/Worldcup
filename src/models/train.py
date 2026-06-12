@@ -169,6 +169,11 @@ def run() -> None:
     print(results.to_string(index=False))
     print("\nLower is better for log_loss / brier / rps. Higher for accuracy.")
 
+    # Persist the benchmark as evidence (consumed by the dashboard's Validation tab).
+    reports_dir = PROJECT_ROOT / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    results.to_csv(reports_dir / "model_benchmark.csv", index=False)
+
     model = fit_final_model(df)
     joblib.dump({"model": model, "features": FEATURES, "classes": CLASSES},
                 MODELS_DIR / "wc_model.joblib")

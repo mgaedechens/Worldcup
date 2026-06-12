@@ -59,7 +59,8 @@ def _standings_row(team: str) -> dict:
 
 
 def simulate_scenario(ctx: Context, rng: np.random.Generator) -> Scenario:
-    ratings = ctx.effective_ratings()
+    # Same stochastic process as the Monte Carlo: one strength draw per tournament.
+    ratings = ctx.tournament_strengths(rng)
     params = ctx.params
 
     group_tables: dict[str, list[dict]] = {}
@@ -72,8 +73,9 @@ def simulate_scenario(ctx: Context, rng: np.random.Generator) -> Scenario:
     for g, teams in ctx.groups.items():
         rows = {t: _standings_row(t) for t in teams}
         group_matches[g] = []
-        for home, away in ctx.group_fixtures[g]:
-            gh, ga = simulate_scoreline(ratings[home], ratings[away], params, rng)
+        for home, away, h_host in ctx.group_fixtures[g]:
+            gh, ga = simulate_scoreline(ratings[home], ratings[away], params, rng,
+                                        a_is_home=h_host)
             group_matches[g].append(GroupMatch(home, away, gh, ga))
             total_goals += gh + ga
             for t, gf, gag in ((home, gh, ga), (away, ga, gh)):

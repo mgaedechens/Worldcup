@@ -18,14 +18,19 @@
 
 | # | Team | Champion | Reaches Final | Reaches Semifinal |
 |---|------|---------:|--------------:|------------------:|
-| 1 | 🇪🇸 Spain | **27.7%** | 40.2% | 53.5% |
-| 2 | 🇦🇷 Argentina | 19.7% | 31.4% | 44.0% |
-| 3 | 🇫🇷 France | 10.3% | 19.0% | 35.0% |
-| 4 | 🏴 England | 7.3% | 14.0% | 26.6% |
-| 5 | 🇧🇷 Brazil | 5.0% | 11.1% | 23.3% |
+| 1 | 🇪🇸 Spain | **19.5%** | 29.8% | 43.0% |
+| 2 | 🇦🇷 Argentina | 14.4% | 23.5% | 35.3% |
+| 3 | 🇫🇷 France | 9.0% | 16.4% | 29.7% |
+| 4 | 🏴 England | 6.2% | 12.5% | 23.2% |
+| 5 | 🇧🇷 Brazil | 5.1% | 10.3% | 20.1% |
 
-The favorite sits well under 50% — exactly as it should. Football is **low-signal,
-high-variance**, and the model embraces that uncertainty rather than faking confidence.
+The favorite sits right in the band where the betting market and the historical record of
+World Cup favorites live (~15-20%) — by **calibration against external benchmarks**, not by
+eye. Each simulated tournament redraws every team's strength around its Elo rating
+(σ=125, see [ADR-005](docs/decisions/ADR-005-rating-uncertainty.md)), modeling the fact that
+ratings are estimates whose errors persist across a whole tournament. Football is
+**low-signal, high-variance**, and the model embraces that uncertainty rather than faking
+confidence.
 
 ## Why this project
 
@@ -70,6 +75,8 @@ strong evidence the pipeline is internally consistent.
 | Model | Logistic regression **over** gradient boosting | Parsimony: ties/beats GBDT, simpler & calibrated |
 | Scoring | Log loss, Brier, **RPS** | Proper scoring rules, not just accuracy |
 | Bracket | **Official** FIFA 2026 structure | Credible, matches reality |
+| Tournament realism | Per-tournament rating noise (σ=125) + data-fitted host advantage | Corrects correlated-error overconfidence; calibrated vs market & history |
+| Consistency guard | Results sidecar (`simulation_results.meta.json`) | Dashboard verifies cached numbers match the live engine |
 
 Full rationale lives in [`docs/decisions/`](docs/decisions/) as Architecture Decision Records.
 
@@ -110,18 +117,28 @@ streamlit run streamlit_app.py
 
 ## 🖥️ Interactive dashboard
 
-`streamlit run streamlit_app.py` opens a polished dark, editorial dashboard (real team flags,
-no clutter) with six views:
+`streamlit run streamlit_app.py` opens a polished warm editorial dashboard (real team flags,
+no clutter) with seven views:
 - **Title race** — championship odds for all 48 teams, with a top-3 podium.
 - **Bracket** — the fixed reference simulation: all 104 matches with exact scorelines, full
-  group standings with every result, knockout tree and tournament stats.
+  group standings with every result, knockout tree and tournament stats. Its seed is chosen
+  programmatically so its champion always matches the model's favourite.
 - **Simulator** — deal brand-new tournaments from the same model, one click each, to *see*
-  what a 27.7% favourite really means.
+  what a ~20% favourite really means.
 - **Groups** — per-group advance probabilities.
 - **Match predictor** — pick any two teams for win/draw/loss probabilities and an expected scoreline.
+- **Validation** — the published evidence: out-of-time model benchmark, the reliability
+  diagram, and the rating-uncertainty sweep tuned against market benchmarks.
 - **How it works** — a plain-language, step-by-step methodology so the model explains itself.
 
-Deployable for free on [Streamlit Community Cloud](https://streamlit.io/cloud) for a clickable CV demo.
+### Deploying your own copy (free)
+
+The repo is deploy-ready: the three artifacts the app needs (`matches_clean.csv` and the two
+model files) are committed, so Streamlit Cloud can boot it directly.
+
+1. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
+2. **Create app** → pick this repository, branch `main`, main file `streamlit_app.py`.
+3. Deploy. You get a public, shareable URL like `https://<your-app>.streamlit.app`.
 
 ## Project structure
 
@@ -167,9 +184,10 @@ Pipeline de *machine learning* **reproducible y explicable** que estima la proba
 que cada selección gane el **Mundial 2026**, a partir de 150+ años de resultados y una
 simulación **Monte Carlo de 10.000 torneos** sobre el cuadro oficial.
 
-**Resultado principal:** 🇪🇸 España **27.7%** · 🇦🇷 Argentina 19.7% · 🇫🇷 Francia 10.3% ·
-🏴 Inglaterra 7.3% · 🇧🇷 Brasil 5.0%. El favorito queda **por debajo del 50%**, reflejando con
-honestidad la alta varianza del fútbol.
+**Resultado principal:** 🇪🇸 España **19.5%** · 🇦🇷 Argentina 14.4% · 🇫🇷 Francia 9.0% ·
+🏴 Inglaterra 6.2% · 🇧🇷 Brasil 5.1%. El favorito queda en la banda del mercado de apuestas y
+del registro histórico (~15-20%), calibrado contra benchmarks externos y no "al ojo",
+reflejando con honestidad la alta varianza del fútbol.
 
 **Cómo funciona:** se calcula un **Elo** (fuerza histórica) de cada selección → alimenta un
 **clasificador logístico calibrado** (victoria/empate/derrota) y un **modelo de goles de

@@ -9,6 +9,7 @@ Run locally:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import joblib
@@ -19,10 +20,14 @@ import streamlit as st
 from src.features.elo import compute_elo
 from src.simulation.engine import load_goals_params
 from src.simulation.scenario import simulate_scenario
-from src.simulation.tournament import build_context
+from src.simulation.tournament import STRENGTH_NOISE, build_context
 
 ROOT = Path(__file__).resolve().parent
 RESULTS = ROOT / "reports" / "simulation_results.csv"
+META = ROOT / "reports" / "simulation_results.meta.json"
+BENCHMARK = ROOT / "reports" / "model_benchmark.csv"
+SIGMA_EVIDENCE = ROOT / "reports" / "sigma_calibration.csv"
+CALIBRATION_FIG = ROOT / "reports" / "figures" / "08_calibration.png"
 MODEL = ROOT / "models" / "wc_model.joblib"
 CLASSES = ["A", "D", "H"]  # away win, draw, home win
 
@@ -291,6 +296,20 @@ def load_results() -> pd.DataFrame:
     return pd.read_csv(RESULTS)
 
 
+@st.cache_data
+def load_meta() -> dict | None:
+    """Sidecar written together with the results CSV; binds it to the engine settings."""
+    if not META.exists():
+        return None
+    return json.loads(META.read_text(encoding="utf-8"))
+
+
+@st.cache_data
+def load_csv(path: str) -> pd.DataFrame | None:
+    p = Path(path)
+    return pd.read_csv(p) if p.exists() else None
+
+
 @st.cache_resource
 def load_ratings() -> dict[str, float]:
     matches = pd.read_csv(ROOT / "data" / "processed" / "matches_clean.csv", parse_dates=["date"])
@@ -509,35 +528,46 @@ _STEPS = [
      "average about 1.1 goals each; a heavy favourite pushes 2.3 while its rival drops to 0.5. "
      "This model was built independently from the classifier, and the fact that both agree on "
      "unseen matches is one of our strongest sanity checks."),
+    ("Respect what we do not know",
+     "An Elo rating is an estimate, not a fact, and if it is slightly wrong for a team, that "
+     "same error follows the team through its entire tournament. So before each simulated "
+     "tournament we redraw every team's underlying strength around its rating. The width of "
+     "that redraw was not chosen by eye: we swept candidate values and checked the favourite's "
+     "title odds against the betting market and the historical record of World Cup favourites, "
+     "both of which sit around 15 to 20%. The full sweep is published in the Validation tab. "
+     "The hosts also get their data-fitted home boost in the group games they play at home, "
+     "because the fixture list says those are real home matches."),
     ("Play the World Cup 10,000 times (Monte Carlo)",
      "One run plays all 104 matches: 72 group games with sampled scorelines, FIFA tie-breakers, "
      "the ranking of best third-placed teams, then the official knockout bracket from the round "
      "of 32 to the final, penalties included. Then we do it again. And again. <b>10,000 times.</b> "
-     "Counting how often each nation lifts the trophy gives its title probability: Spain at "
-     "27.7% means Spain won 2,770 of those 10,000 tournaments. The Bracket tab shows one of "
+     "Counting how often each nation lifts the trophy gives its title probability: {fav} at "
+     "{pct} means {fav} won {wins} of those 10,000 tournaments. The Bracket tab shows one of "
      "these stories in full detail; the Simulator lets you deal new ones."),
     ("Check the work",
      "Before trusting any number we tested the pipeline the way a quant tests a trading model. "
      "Trained on the past, evaluated only on later matches it had never seen (2022 onwards, "
      "including the last World Cup). Scored with proper probability metrics, not just accuracy. "
-     "Stress-tested: changing the training window from 1990 to 2014 barely moves the skill, and "
-     "adding a host-nation boost lifts Mexico a few points without changing the favourites. "
-     "Plus <b>15 automated tests</b> guard the internals, from Elo being zero-sum to every "
-     "simulated tournament producing exactly one champion."),
+     "Stress-tested: changing the training window from 1990 to 2014 barely moves the skill. "
+     "A suite of <b>automated tests</b> guards the internals, from Elo being zero-sum to every "
+     "simulated tournament producing exactly one champion, and a metadata file ties the "
+     "published numbers to the exact engine settings that produced them."),
 ]
 
 _FACTS = [
     ("fv", "10,000", "tournaments simulated"),
     ("fv", "49,000", "matches since 1872"),
     ("fv acc", "0.172", "forecast skill (RPS) vs 0.228 naive baseline"),
-    ("fv acc", "15/15", "automated tests passing"),
+    ("fv acc", "16/16", "automated tests passing"),
 ]
 
 
-def methodology_html() -> str:
+def methodology_html(fav: str, fav_prob: float) -> str:
+    pct = f"{fav_prob:.1%}"
+    wins = f"{round(fav_prob * 10_000):,}"
     steps = "".join(
         f'<div class="step"><div class="num">{i}</div><div><div class="st-t">{t}</div>'
-        f'<div class="st-d">{d}</div></div></div>'
+        f'<div class="st-d">{d.format(fav=fav, pct=pct, wins=wins)}</div></div></div>'
         for i, (t, d) in enumerate(_STEPS, 1)
     )
     facts = "".join(
@@ -563,18 +593,65 @@ def methodology_html() -> str:
         '<div class="sec">What it cannot do</div>'
         '<div class="limit">It knows teams, not players: injuries, suspensions and squad form are '
         'invisible to it.<br>'
-        'World Cup matches are treated as neutral ground, so the USA, Mexico and Canada get no '
-        'home-crowd boost in the headline numbers (we measured this separately: it lifts the '
-        'hosts a few points and changes little else).<br>'
-        'And above all, it outputs <b>probabilities, not certainties</b>. A 28% favourite still '
-        'loses the tournament 72% of the time. That is not a weakness of the model. That is '
-        'football.</div>'
+        'Host advantage is applied only where the fixture list confirms a real home game (the '
+        'hosts\' own group matches); knockout venues are treated as neutral.<br>'
+        f'And above all, it outputs <b>probabilities, not certainties</b>. A {pct} favourite '
+        f'still loses the tournament about {1 - fav_prob:.0%} of the time. That is not a '
+        'weakness of the model. That is football.</div>'
         '<div class="sec">Under the hood</div>'
         '<div class="prose">Python, pandas, scikit-learn, NumPy, SciPy and Streamlit. Elo ratings '
         'feed a calibrated logistic regression and a Poisson goals model, which drive a Monte '
         'Carlo simulation of the official FIFA bracket. The whole pipeline is open source, '
         'reproducible with one command, and documented decision by decision.</div>'
         '<a class="repo" href="https://github.com/mgaedechens/Worldcup" target="_blank">View the code on GitHub</a>'
+    )
+
+
+def benchmark_table_html(df: pd.DataFrame) -> str:
+    """Out-of-time model benchmark (the evidence behind the model choice)."""
+    rows = []
+    for _, r in df.iterrows():
+        selected = "*selected*" in r["model"]
+        name = r["model"].replace(" *selected*", "")
+        badge = (' <span style="color:var(--accent);font-weight:800;font-size:.68rem;'
+                 'text-transform:uppercase;letter-spacing:1px">selected</span>') if selected else ""
+        cls = ' class="qual"' if selected else ""
+        rows.append(
+            f'<tr{cls}><td class="tm">{name}{badge}</td>'
+            f'<td>{r["accuracy"]:.3f}</td><td>{r["log_loss"]:.4f}</td>'
+            f'<td>{r["brier"]:.4f}</td><td class="pts">{r["rps"]:.4f}</td></tr>'
+        )
+    return (
+        '<div class="gblock"><table class="gst">'
+        '<tr><th class="tm">Model</th><th>Accuracy</th><th>Log loss</th>'
+        '<th>Brier</th><th>RPS</th></tr>'
+        f'{"".join(rows)}</table>'
+        '<div class="gm-h">Test set: every match from 2022 onward, never seen in training. '
+        'Lower is better for log loss, Brier and RPS.</div></div>'
+    )
+
+
+def sigma_table_html(df: pd.DataFrame, chosen: float) -> str:
+    """Rating-uncertainty sweep (how sigma was chosen against the market benchmark)."""
+    rows = []
+    for _, r in df.iterrows():
+        sel = float(r["sigma"]) == float(chosen)
+        badge = (' <span style="color:var(--accent);font-weight:800;font-size:.68rem;'
+                 'text-transform:uppercase;letter-spacing:1px">chosen</span>') if sel else ""
+        cls = ' class="qual"' if sel else ""
+        rows.append(
+            f'<tr{cls}><td class="tm">&sigma; = {int(r["sigma"])}{badge}</td>'
+            f'<td>{r["favorite"]}</td><td>{r["favorite_prob"]:.1%}</td>'
+            f'<td>{r["top4_prob_sum"]:.1%}</td><td class="pts">{r["mexico_prob"]:.1%}</td></tr>'
+        )
+    return (
+        '<div class="gblock"><table class="gst">'
+        '<tr><th class="tm">Rating uncertainty</th><th>Favourite</th>'
+        '<th>Title prob</th><th>Top-4 share</th><th>Mexico</th></tr>'
+        f'{"".join(rows)}</table>'
+        '<div class="gm-h">Benchmark: market-implied favourite probability and the historical '
+        'record of World Cup favourites both sit around 15 to 20%. 4,000 simulations per row.'
+        '</div></div>'
     )
 
 
@@ -594,8 +671,20 @@ def main() -> None:
         st.stop()
 
     results = load_results()
-    tab_race, tab_bracket, tab_sim, tab_groups, tab_match, tab_how = st.tabs(
-        ["Title race", "Bracket", "Simulator", "Groups", "Match predictor", "How it works"])
+    meta = load_meta()
+
+    # Single-source-of-truth guard: the published numbers must come from THIS engine.
+    if meta is None or meta.get("strength_noise") != STRENGTH_NOISE or meta.get("host_bonus", 0.0) != 0.0:
+        st.warning("The cached results were generated with different engine settings. "
+                   "Run `python -m src.simulation.montecarlo` to refresh them.")
+
+    fav_team = results.iloc[0]["team"]
+    fav_prob = float(results.iloc[0]["Champion"])
+    ref_seed = (meta or {}).get("reference_seed", 2)
+
+    tab_race, tab_bracket, tab_sim, tab_groups, tab_match, tab_val, tab_how = st.tabs(
+        ["Title race", "Bracket", "Simulator", "Groups", "Match predictor",
+         "Validation", "How it works"])
 
     with tab_race:
         st.markdown('<div class="lead">Each figure is the share of <b>10,000 simulated '
@@ -616,21 +705,21 @@ def main() -> None:
         st.markdown(group_tables_html(scen), unsafe_allow_html=True)
 
     with tab_bracket:
-        st.markdown('<div class="lead">The reference simulation: one complete tournament played '
-                    'out match by match, with the exact score of all 104 games, from the group '
-                    'stage to the final. It is fixed and reproducible (seed 2), and its champion '
-                    'matches the most likely winner from the Title race. Remember it is one '
-                    'plausible story among 10,000, not a certainty. Want to see how differently '
-                    'it can unfold? Open the <b>Simulator</b> tab.</div>',
-                    unsafe_allow_html=True)
-        render_scenario(simulate_scenario(load_context(), np.random.default_rng(2)))
+        st.markdown(f'<div class="lead">The reference simulation: one complete tournament played '
+                    f'out match by match, with the exact score of all 104 games, from the group '
+                    f'stage to the final. It is fixed and reproducible (seed {ref_seed}), picked '
+                    f'automatically so its champion coincides with the model\'s favourite, '
+                    f'{fav_team}. Remember it is one plausible story among 10,000, not a '
+                    f'certainty. Want to see how differently it can unfold? Open the '
+                    f'<b>Simulator</b> tab.</div>', unsafe_allow_html=True)
+        render_scenario(simulate_scenario(load_context(), np.random.default_rng(ref_seed)))
 
     with tab_sim:
-        st.markdown('<div class="lead">Here you can replay the World Cup as many times as you '
-                    'like. Every click deals a brand-new tournament from the same probability '
-                    'model: sometimes the favourite cruises, sometimes a dark horse lifts the '
-                    'trophy. That spread is not a bug, it is exactly what a 27.7% favourite '
-                    'means.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="lead">Here you can replay the World Cup as many times as you '
+                    f'like. Every click deals a brand-new tournament from the same probability '
+                    f'model: sometimes the favourite cruises, sometimes a dark horse lifts the '
+                    f'trophy. That spread is not a bug, it is exactly what a {fav_prob:.1%} '
+                    f'favourite means.</div>', unsafe_allow_html=True)
         if "sim_seed" not in st.session_state:
             st.session_state.sim_seed = 100
         if st.button("Simulate a new tournament"):
@@ -671,14 +760,69 @@ def main() -> None:
             html = h2h_html(a, b, p_a, p_d, p_b, lam_a, lam_b, ratings[a], ratings[b])
             st.markdown(html, unsafe_allow_html=True)
 
+    with tab_val:
+        st.markdown('<div class="lead">Every number on this dashboard traces back to a measured, '
+                    'reproducible decision. This tab publishes the evidence: how the model was '
+                    'chosen, whether its probabilities can be trusted, and how the simulation\'s '
+                    'realism was tuned against external benchmarks rather than by eye.</div>',
+                    unsafe_allow_html=True)
+
+        st.markdown('<div class="sec">1. Model selection, tested on the future</div>',
+                    unsafe_allow_html=True)
+        st.markdown('<div class="prose">Four candidates were trained on matches before 2022 and '
+                    'scored on everything after, including the 2022 World Cup. Accuracy alone '
+                    'hides probability quality, so we use proper scoring rules: log loss, the '
+                    'Brier score and the Ranked Probability Score (RPS), the standard in '
+                    'football forecasting. The simple logistic regression beat the fancier '
+                    'gradient boosting on every one of them, which is why it was selected.</div>',
+                    unsafe_allow_html=True)
+        bench = load_csv(str(BENCHMARK))
+        if bench is not None:
+            st.markdown(benchmark_table_html(bench), unsafe_allow_html=True)
+        else:
+            st.info("Run `python -m src.models.train` to generate the benchmark table.")
+
+        st.markdown('<div class="sec">2. Are the probabilities honest?</div>',
+                    unsafe_allow_html=True)
+        st.markdown('<div class="prose">A reliability diagram bins the model\'s predictions and '
+                    'checks them against reality on the unseen test matches: when it says 70%, '
+                    'does that happen about 70% of the time? The curve hugging the diagonal '
+                    'means yes. This matters because the Monte Carlo consumes these '
+                    'probabilities ten thousand times; a biased input would compound.</div>',
+                    unsafe_allow_html=True)
+        if CALIBRATION_FIG.exists():
+            st.image(str(CALIBRATION_FIG), width=520)
+
+        st.markdown('<div class="sec">3. Tournament realism, tuned against the market</div>',
+                    unsafe_allow_html=True)
+        st.markdown('<div class="prose">Treating Elo ratings as exact truths makes a tournament '
+                    'simulation overconfident, because a rating error follows a team through '
+                    'all seven of its matches. We correct this by redrawing each team\'s '
+                    'strength around its rating once per simulated tournament. The width of '
+                    'that redraw was swept and compared against the betting market and the '
+                    'historical record of World Cup favourites, both around 15 to 20% for the '
+                    'top team. The sweep below is the published evidence.</div>',
+                    unsafe_allow_html=True)
+        sigma = load_csv(str(SIGMA_EVIDENCE))
+        if sigma is not None:
+            st.markdown(sigma_table_html(sigma, STRENGTH_NOISE), unsafe_allow_html=True)
+        else:
+            st.info("Run `python scripts/calibrate_sigma.py` to generate the sweep.")
+        st.markdown('<div class="prose" style="margin-top:12px">Full decision records live in '
+                    'the repository under <span class="mono">docs/decisions/</span>, and the '
+                    'engine settings that produced the published numbers are pinned in a '
+                    'metadata file the app checks on every load.</div>', unsafe_allow_html=True)
+
     with tab_how:
-        st.markdown(methodology_html(), unsafe_allow_html=True)
+        st.markdown(methodology_html(fav_team, fav_prob), unsafe_allow_html=True)
 
     st.markdown(
         '<div class="foot"><b>Methodology.</b> Elo ratings built from the full match history feed a '
         'calibrated logistic classifier and a Poisson goals model; the tournament is then simulated '
-        '10,000 times over the official FIFA bracket. The output is probabilities, never certainties.<br>'
-        'Neutral venues assumed. Flags via flagcdn.com. Not affiliated with FIFA.</div>',
+        '10,000 times over the official FIFA bracket with per-tournament rating uncertainty. '
+        'The output is probabilities, never certainties.<br>'
+        'Host group games use the data-fitted home advantage; knockout venues are neutral. '
+        'Flags via flagcdn.com. Not affiliated with FIFA.</div>',
         unsafe_allow_html=True,
     )
 

@@ -1,0 +1,10 @@
+{
+  "n_simulations": 10000,
+  "seed": 42,
+  "strength_noise": 125.0,
+  "host_bonus": 0.0,
+  "favorite": "Spain",
+  "favorite_prob": 0.1953,
+  "reference_seed": 5,
+  "generated": "2026-06-12"
+}

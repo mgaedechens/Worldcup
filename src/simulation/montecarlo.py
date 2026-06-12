@@ -13,30 +13,36 @@ Run:
 from __future__ import annotations
 
 import argparse
+import json
+from datetime import date
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from src.simulation.bracket import STAGES
+from src.simulation.scenario import simulate_scenario
 from src.simulation.tournament import Context, build_context, simulate_tournament
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 REPORTS_DIR = PROJECT_ROOT / "reports"
+META_PATH = REPORTS_DIR / "simulation_results.meta.json"
 
 
 def run_montecarlo(
     n: int = 10_000, seed: int = 42, ctx: Context | None = None,
-    host_bonus: float | None = None,
+    host_bonus: float | None = None, strength_noise: float | None = None,
 ) -> pd.DataFrame:
     """Simulate ``n`` tournaments and return per-team stage-reach probabilities.
 
-    ``host_bonus`` optionally overrides the Elo boost given to host nations (default 0 keeps
-    the neutral v1 model); used by the robustness analysis.
+    ``host_bonus`` optionally overrides the flat Elo boost given to host nations and
+    ``strength_noise`` the per-tournament rating uncertainty; both are sensitivity knobs.
     """
     ctx = ctx or build_context()
     if host_bonus is not None:
         ctx.host_bonus = host_bonus
+    if strength_noise is not None:
+        ctx.strength_noise = strength_noise
     rng = np.random.default_rng(seed)
 
     all_teams = [t for teams in ctx.groups.values() for t in teams]
@@ -62,6 +68,44 @@ def run_montecarlo(
     return df
 
 
+def find_reference_seed(ctx: Context, champion: str, max_seed: int = 2000) -> int:
+    """Smallest RNG seed whose detailed scenario crowns ``champion``.
+
+    The dashboard's Bracket tab shows ONE fixed example tournament; tying its seed to the
+    Monte Carlo's modal champion keeps that tab consistent with the Title race by
+    construction, instead of by a hardcoded number that can silently go stale.
+    """
+    for seed in range(max_seed):
+        if simulate_scenario(ctx, np.random.default_rng(seed)).champion == champion:
+            return seed
+    return 0
+
+
+def save_results(df: pd.DataFrame, ctx: Context, n: int, seed: int) -> dict:
+    """Persist the results CSV plus a metadata sidecar binding it to the engine settings.
+
+    The sidecar is the single-source-of-truth guard: the dashboard compares it against the
+    live engine parameters and warns if the cached probabilities were produced by a
+    different engine (the exact failure mode found in the 2026-06-12 audit).
+    """
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    df.to_csv(REPORTS_DIR / "simulation_results.csv", index=False)
+
+    favorite = df.iloc[0]
+    meta = {
+        "n_simulations": n,
+        "seed": seed,
+        "strength_noise": ctx.strength_noise,
+        "host_bonus": ctx.host_bonus,
+        "favorite": favorite["team"],
+        "favorite_prob": round(float(favorite["Champion"]), 4),
+        "reference_seed": find_reference_seed(ctx, favorite["team"]),
+        "generated": date.today().isoformat(),
+    }
+    META_PATH.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    return meta
+
+
 def run() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=10_000, help="number of simulations")
@@ -69,11 +113,11 @@ def run() -> None:
     args = parser.parse_args()
 
     print(f"Simulating the 2026 World Cup {args.n:,} times...")
-    df = run_montecarlo(args.n, args.seed)
-
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    ctx = build_context()
+    df = run_montecarlo(args.n, args.seed, ctx=ctx)
+    meta = save_results(df, ctx, args.n, args.seed)
     out = REPORTS_DIR / "simulation_results.csv"
-    df.to_csv(out, index=False)
+    print(f"[ok] sidecar -> {META_PATH.name}  (reference bracket seed: {meta['reference_seed']})")
 
     pd.set_option("display.float_format", lambda v: f"{v:.1%}")
     print("\nTitle probabilities — top 20:\n")

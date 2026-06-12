@@ -42,9 +42,10 @@ def main() -> None:
         print(f"    done in {time.time() - t:.1f}s")
 
     print(f"\n=== [{len(steps) + 1}/{len(steps) + 1}] Monte Carlo simulation ===")
-    df = montecarlo.run_montecarlo(args.n)
+    ctx = montecarlo.build_context()
+    df = montecarlo.run_montecarlo(args.n, ctx=ctx)
+    montecarlo.save_results(df, ctx, args.n, 42)
     out = montecarlo.REPORTS_DIR / "simulation_results.csv"
-    df.to_csv(out, index=False)
     print("\nTop 10 title contenders:\n")
     print(df.head(10)[["team", "group", "elo", "Champion"]].to_string(index=False))
     print(f"\nFull results -> {out}")
