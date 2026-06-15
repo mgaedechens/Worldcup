@@ -17,8 +17,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.features.elo import compute_elo
-from src.simulation.engine import load_goals_params
+from src.features.strength import build_strength_table
+from src.simulation.engine import knockout_win_prob, load_goals_params
 from src.simulation.scenario import simulate_scenario
 from src.simulation.tournament import STRENGTH_NOISE, build_context
 
@@ -201,6 +201,9 @@ div[data-baseweb="tab-border"]{ background:transparent!important; }
 .ko-nm.win{ color:var(--accent3); font-weight:800; }
 .ko-sc{ font-family:'IBM Plex Mono'; font-weight:600; min-width:52px; text-align:center; font-size:.94rem; }
 .ko-pens{ grid-column:1/-1; text-align:center; color:var(--faint); font-size:.66rem; letter-spacing:.5px; margin-top:4px; }
+.ko-prob{ grid-column:1/-1; text-align:center; color:var(--faint); font-size:.64rem; letter-spacing:.3px; margin-top:3px; }
+.ko-prob b{ color:var(--muted); font-weight:700; }
+.ko-prob .upset{ color:var(--accent); font-weight:700; }
 
 /* Group match scorelines */
 .gm{ display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:center;
@@ -311,12 +314,6 @@ def load_csv(path: str) -> pd.DataFrame | None:
 
 
 @st.cache_resource
-def load_ratings() -> dict[str, float]:
-    matches = pd.read_csv(ROOT / "data" / "processed" / "matches_clean.csv", parse_dates=["date"])
-    return compute_elo(matches).final_ratings
-
-
-@st.cache_resource
 def load_classifier():
     return joblib.load(MODEL)
 
@@ -344,7 +341,7 @@ def podium_html(df: pd.DataFrame) -> str:
             f'<div class="seed">{seed}</div>'
             f'<div class="pteam">{flag(r["team"])}<span class="name">{r["team"]}</span></div>'
             f'<div class="pval">{r["Champion"] * 100:.1f}%</div>'
-            f'<div class="plabel">to lift the trophy &middot; Elo {r["elo"]:.0f}</div></div>'
+            f'<div class="plabel">to lift the trophy &middot; rating {r["strength"]:.0f}</div></div>'
         )
     return f'<div class="podium">{"".join(cards)}</div>'
 
@@ -391,10 +388,10 @@ def h2h_html(a: str, b: str, p_a: float, p_d: float, p_b: float,
     return (
         f'<div class="vs"><div class="vs-head">'
         f'<div class="vs-team">{vs_flag(a)}<div class="vn">{a}</div>'
-        f'<div class="elo">ELO {elo_a:.0f}</div></div>'
+        f'<div class="elo">RATING {elo_a:.0f}</div></div>'
         f'<div class="vs-score">{lam_a:.1f} &ndash; {lam_b:.1f}</div>'
         f'<div class="vs-team">{vs_flag(b)}<div class="vn">{b}</div>'
-        f'<div class="elo">ELO {elo_b:.0f}</div></div></div>'
+        f'<div class="elo">RATING {elo_b:.0f}</div></div></div>'
         f'<div class="seg"><div class="sa" style="width:{wa:.1f}%">{wa:.0f}%</div>'
         f'<div class="sd" style="width:{wd:.1f}%">{wd:.0f}%</div>'
         f'<div class="sb" style="width:{wb:.1f}%">{wb:.0f}%</div></div>'
@@ -411,7 +408,17 @@ def _kflag(team: str) -> str:
     return f'<img class="kflag" src="https://flagcdn.com/w40/{code}.png" alt="{team}">' if code else ""
 
 
-def _ko_card(m, final: bool = False) -> str:
+def _prob_line(m, fav: str | None, fav_prob: float | None) -> str:
+    """Subtle line giving the favourite's pre-match odds to advance — context for upsets."""
+    if fav is None or fav_prob is None:
+        return ""
+    upset = m.winner != fav
+    tag = ' <span class="upset">upset</span>' if upset else ""
+    return (f'<div class="ko-prob"><b>{fav}</b> {fav_prob * 100:.0f}% to advance'
+            f' (model){tag}</div>')
+
+
+def _ko_card(m, final: bool = False, fav: str | None = None, fav_prob: float | None = None) -> str:
     aw = " win" if m.winner == m.team_a else ""
     bw = " win" if m.winner == m.team_b else ""
     pens = '<div class="ko-pens">decided on penalties</div>' if m.pens else ""
@@ -421,7 +428,7 @@ def _ko_card(m, final: bool = False) -> str:
         f'<div class="ko-a"><span class="ko-nm{aw}">{m.team_a}</span>{_kflag(m.team_a)}</div>'
         f'<div class="ko-sc">{m.goals_a}&ndash;{m.goals_b}</div>'
         f'<div class="ko-b">{_kflag(m.team_b)}<span class="ko-nm{bw}">{m.team_b}</span></div>'
-        f'{pens}</div>'
+        f'{_prob_line(m, fav, fav_prob)}{pens}</div>'
     )
 
 
@@ -450,14 +457,24 @@ def scenario_stats_html(scen) -> str:
     return f'<div class="facts">{cells}</div>'
 
 
-def bracket_html(scen) -> str:
+def bracket_html(scen, ratings: dict[str, float] | None = None, params=None) -> str:
+    """Render the knockout bracket. When ``ratings``/``params`` are given, each card also shows
+    the favourite's model probability to advance, so visible upsets are put in context."""
+    def fav_and_prob(m):
+        if ratings is None or params is None:
+            return None, None
+        fav = m.team_a if ratings.get(m.team_a, 0) >= ratings.get(m.team_b, 0) else m.team_b
+        other = m.team_b if fav == m.team_a else m.team_a
+        return fav, knockout_win_prob(fav, other, ratings, params)
+
     out = []
     for key, title in _ROUND_TITLES:
         ms = [m for m in scen.knockouts if m.round_key == key]
         if not ms:
             continue
         grid_cls = "ko-grid one" if key == "F" else "ko-grid"
-        cards = "".join(_ko_card(m, final=(key == "F")) for m in ms)
+        cards = "".join(_ko_card(m, final=(key == "F"), fav=(fp := fav_and_prob(m))[0],
+                                 fav_prob=fp[1]) for m in ms)
         out.append(f'<div class="sec">{title}</div><div class="{grid_cls}">{cards}</div>')
     return "".join(out)
 
@@ -512,6 +529,15 @@ _STEPS = [
      "more than a 1-0) and gives home sides a bonus. One strict rule protects everything: when a "
      "match is used for training, we only look at the ratings <b>before</b> kickoff. The model "
      "never gets to peek at the result it is trying to predict."),
+    ("Blend in the market and the players",
+     "Elo only knows past <b>results</b>, so it can lag reality: a young squad on the rise, or an "
+     "ageing side coasting on reputation. We correct for that by fusing Elo with two more signals "
+     "on the same scale. The first is the <b>betting market</b>: bookmakers' de-vigged title odds "
+     "are the single most accurate public forecast of football, because they price in injuries, "
+     "form and sharp money. The second is each squad's <b>Transfermarkt market value</b>, a direct "
+     "read on current player quality. The three are combined into one composite rating (Elo 45%, "
+     "market 35%, squad value 20%). This is what cools an over-rated side and warms an under-rated "
+     "one, and it is what drives every simulated match. The full breakdown is in the Validation tab."),
     ("Learn how strength turns into results",
      "With ratings in hand, a <b>logistic regression</b> learns the pattern from about 23,000 "
      "modern matches (2002 onwards): given an Elo gap, recent form, rest days and venue, what is "
@@ -532,10 +558,10 @@ _STEPS = [
      "An Elo rating is an estimate, not a fact, and if it is slightly wrong for a team, that "
      "same error follows the team through its entire tournament. So before each simulated "
      "tournament we redraw every team's underlying strength around its rating. The width of "
-     "that redraw was not chosen by eye: we swept candidate values and checked the favourite's "
-     "title odds against the betting market and the historical record of World Cup favourites, "
-     "both of which sit around 15 to 20%. The full sweep is published in the Validation tab. "
-     "The hosts also get their data-fitted home boost in the group games they play at home, "
+     "that redraw was not chosen by eye: we swept candidate values and scored the whole "
+     "simulated title race against the de-vigged betting market, picking the width that fits it "
+     "best while keeping realistic knockout upsets. The full sweep is published in the Validation "
+     "tab. The hosts also get their data-fitted home boost in the group games they play at home, "
      "because the fixture list says those are real home matches."),
     ("Play the World Cup 10,000 times (Monte Carlo)",
      "One run plays all 104 matches: 72 group games with sampled scorelines, FIFA tie-breakers, "
@@ -558,7 +584,7 @@ _FACTS = [
     ("fv", "10,000", "tournaments simulated"),
     ("fv", "49,000", "matches since 1872"),
     ("fv acc", "0.172", "forecast skill (RPS) vs 0.228 naive baseline"),
-    ("fv acc", "16/16", "automated tests passing"),
+    ("fv acc", "22/22", "automated tests passing"),
 ]
 
 
@@ -591,18 +617,19 @@ def methodology_html(fav: str, fav_prob: float) -> str:
         'what they say. When two independently built models (the classifier and the goals model) '
         'arrive at the same answer on unseen data, that agreement is hard to fake.</div>'
         '<div class="sec">What it cannot do</div>'
-        '<div class="limit">It knows teams, not players: injuries, suspensions and squad form are '
-        'invisible to it.<br>'
+        '<div class="limit">It reads squad value, not the team sheet: day-of injuries, suspensions '
+        'and a manager\'s lineup are still invisible to it.<br>'
         'Host advantage is applied only where the fixture list confirms a real home game (the '
         'hosts\' own group matches); knockout venues are treated as neutral.<br>'
         f'And above all, it outputs <b>probabilities, not certainties</b>. A {pct} favourite '
         f'still loses the tournament about {1 - fav_prob:.0%} of the time. That is not a '
         'weakness of the model. That is football.</div>'
         '<div class="sec">Under the hood</div>'
-        '<div class="prose">Python, pandas, scikit-learn, NumPy, SciPy and Streamlit. Elo ratings '
-        'feed a calibrated logistic regression and a Poisson goals model, which drive a Monte '
-        'Carlo simulation of the official FIFA bracket. The whole pipeline is open source, '
-        'reproducible with one command, and documented decision by decision.</div>'
+        '<div class="prose">Python, pandas, scikit-learn, NumPy, SciPy and Streamlit. A composite '
+        'rating (Elo blended with the betting market and squad value) feeds a calibrated logistic '
+        'regression and a Poisson goals model, which drive a Monte Carlo simulation of the official '
+        'FIFA bracket. The whole pipeline is open source, reproducible with one command, and '
+        'documented decision by decision.</div>'
         '<a class="repo" href="https://github.com/mgaedechens/Worldcup" target="_blank">View the code on GitHub</a>'
     )
 
@@ -632,26 +659,61 @@ def benchmark_table_html(df: pd.DataFrame) -> str:
 
 
 def sigma_table_html(df: pd.DataFrame, chosen: float) -> str:
-    """Rating-uncertainty sweep (how sigma was chosen against the market benchmark)."""
+    """Rating-uncertainty sweep, scored by fit to the de-vigged betting market."""
+    best_sse = df["vs_market_sse"].min()
     rows = []
     for _, r in df.iterrows():
         sel = float(r["sigma"]) == float(chosen)
+        best = float(r["vs_market_sse"]) == float(best_sse)
         badge = (' <span style="color:var(--accent);font-weight:800;font-size:.68rem;'
                  'text-transform:uppercase;letter-spacing:1px">chosen</span>') if sel else ""
+        if best and not sel:
+            badge = (' <span style="color:var(--faint);font-weight:700;font-size:.66rem;'
+                     'text-transform:uppercase;letter-spacing:1px">best SSE</span>')
         cls = ' class="qual"' if sel else ""
         rows.append(
             f'<tr{cls}><td class="tm">&sigma; = {int(r["sigma"])}{badge}</td>'
             f'<td>{r["favorite"]}</td><td>{r["favorite_prob"]:.1%}</td>'
-            f'<td>{r["top4_prob_sum"]:.1%}</td><td class="pts">{r["mexico_prob"]:.1%}</td></tr>'
+            f'<td>{r["vs_market_sse"]:.4f}</td><td class="pts">{r["vs_market_mae"]:.4f}</td></tr>'
         )
     return (
         '<div class="gblock"><table class="gst">'
         '<tr><th class="tm">Rating uncertainty</th><th>Favourite</th>'
-        '<th>Title prob</th><th>Top-4 share</th><th>Mexico</th></tr>'
+        '<th>Title prob</th><th>vs market SSE</th><th>MAE</th></tr>'
         f'{"".join(rows)}</table>'
-        '<div class="gm-h">Benchmark: market-implied favourite probability and the historical '
-        'record of World Cup favourites both sit around 15 to 20%. 4,000 simulations per row.'
-        '</div></div>'
+        '<div class="gm-h">Each row simulates 5,000 tournaments and compares the full simulated '
+        'title distribution against the de-vigged betting market. SSE is flat across &sigma; = 75 '
+        'to 125 (within Monte Carlo noise); &sigma; = 125 is chosen because it also reproduces the '
+        'market favourite almost exactly while preserving realistic knockout variance.</div></div>'
+    )
+
+
+def strength_sources_html(table: pd.DataFrame, n: int = 14) -> str:
+    """Show how the composite rating is built from Elo, market and squad value."""
+    movers = table.reindex(table["shift"].abs().sort_values(ascending=False).index).head(n)
+    rows = []
+    for _, r in movers.iterrows():
+        shift = int(r["shift"])
+        col = "var(--accent)" if shift > 0 else "var(--faint)"
+        sign = f"+{shift}" if shift > 0 else str(shift)
+        mkt = "&mdash;" if pd.isna(r["market_rating"]) else f'{r["market_rating"]:.0f}'
+        sq = "&mdash;" if pd.isna(r["squad_rating"]) else f'{r["squad_rating"]:.0f}'
+        rows.append(
+            f'<tr><td class="tm">{flag(r["team"])}{r["team"]}</td>'
+            f'<td>{r["elo"]:.0f}</td><td>{mkt}</td><td>{sq}</td>'
+            f'<td class="pts">{r["composite"]:.0f}</td>'
+            f'<td style="color:{col};font-weight:700">{sign}</td></tr>'
+        )
+    return (
+        '<div class="gblock"><table class="gst">'
+        '<tr><th class="tm">Team</th><th>Elo</th><th>Market</th><th>Squad</th>'
+        '<th>Composite</th><th>Shift</th></tr>'
+        f'{"".join(rows)}</table>'
+        '<div class="gm-h">The biggest moves versus Elo-only. Market = rating implied by '
+        'de-vigged title odds (only teams the books price); Squad = rating implied by '
+        'Transfermarkt squad value. Composite = weighted blend (Elo 45%, market 35%, squad 20%, '
+        'renormalised when a signal is missing). A positive shift means the market and current '
+        'players rate the team higher than its past results alone.</div></div>'
     )
 
 
@@ -661,8 +723,8 @@ def main() -> None:
         '<div class="hero"><div class="hero-kicker">Predictive Model &middot; 2026 FIFA World Cup</div>'
         '<h1 class="hero-title">The Title Race</h1>'
         '<div class="hero-sub">Championship probabilities from 10,000 Monte Carlo simulations of the '
-        'official 48-team bracket, driven by 150 years of results, Elo ratings and a calibrated '
-        'machine-learning model.</div></div>',
+        'official 48-team bracket, driven by a composite rating that blends 150 years of results '
+        '(Elo) with the betting market and current squad value.</div></div>',
         unsafe_allow_html=True,
     )
 
@@ -696,10 +758,12 @@ def main() -> None:
         n = st.slider("Teams shown", 8, 48, 20, label_visibility="collapsed")
         st.markdown(leaderboard_html(results.head(n)), unsafe_allow_html=True)
 
+    ctx = load_context()
+
     def render_scenario(scen) -> None:
         st.markdown(champion_banner_html(scen), unsafe_allow_html=True)
         st.markdown(scenario_stats_html(scen), unsafe_allow_html=True)
-        st.markdown(bracket_html(scen), unsafe_allow_html=True)
+        st.markdown(bracket_html(scen, ctx.ratings, ctx.params), unsafe_allow_html=True)
         st.markdown('<div class="sec">Group stage: standings and every result</div>',
                     unsafe_allow_html=True)
         st.markdown(group_tables_html(scen), unsafe_allow_html=True)
@@ -709,9 +773,11 @@ def main() -> None:
                     f'out match by match, with the exact score of all 104 games, from the group '
                     f'stage to the final. It is fixed and reproducible (seed {ref_seed}), picked '
                     f'automatically so its champion coincides with the model\'s favourite, '
-                    f'{fav_team}. Remember it is one plausible story among 10,000, not a '
-                    f'certainty. Want to see how differently it can unfold? Open the '
-                    f'<b>Simulator</b> tab.</div>', unsafe_allow_html=True)
+                    f'{fav_team}. Each knockout card shows the favourite\'s model probability to '
+                    f'advance, so an <b>upset</b> tag means the underdog won a game it was not '
+                    f'expected to: those are not bugs, they are exactly what makes a single '
+                    f'bracket one plausible story among 10,000. Open the <b>Simulator</b> tab to '
+                    f'deal another.</div>', unsafe_allow_html=True)
         render_scenario(simulate_scenario(load_context(), np.random.default_rng(ref_seed)))
 
     with tab_sim:
@@ -740,13 +806,15 @@ def main() -> None:
                     'best-third-place path.</div>', unsafe_allow_html=True)
 
     with tab_match:
-        ratings = load_ratings()
+        ratings = load_context().ratings  # composite strength — the same input the bracket uses
         clf = load_classifier()["model"]
         params = load_goals()
         teams = sorted(results["team"])
         st.markdown('<div class="lead">A hypothetical neutral-venue match. Win / draw / loss come '
                     'from the calibrated classifier; the scoreline is the Poisson model\'s expected '
-                    'goals. Both read from the same Elo ratings.</div>', unsafe_allow_html=True)
+                    'goals. Both read from the same <b>composite strength</b> ratings (Elo blended '
+                    'with the betting market and squad value) that drive the simulation.</div>',
+                    unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         a = c1.selectbox("Team A", teams, index=teams.index("Spain") if "Spain" in teams else 0)
         b = c2.selectbox("Team B", teams, index=teams.index("Brazil") if "Brazil" in teams else 1)
@@ -793,15 +861,32 @@ def main() -> None:
         if CALIBRATION_FIG.exists():
             st.image(str(CALIBRATION_FIG), width=520)
 
-        st.markdown('<div class="sec">3. Tournament realism, tuned against the market</div>',
+        st.markdown('<div class="sec">3. Where each team\'s strength comes from</div>',
                     unsafe_allow_html=True)
-        st.markdown('<div class="prose">Treating Elo ratings as exact truths makes a tournament '
+        st.markdown('<div class="prose">The simulation is not driven by Elo alone. Each team\'s '
+                    'strength is a <b>composite</b> of three signals on a common scale: its Elo '
+                    '(150 years of results), the rating implied by the <b>de-vigged betting '
+                    'market</b> (the most accurate public forecast there is), and the rating '
+                    'implied by its <b>Transfermarkt squad value</b> (a current-players signal '
+                    'that results can lag). The table shows the teams the blend moves most: the '
+                    'market and current squads cool down sides coasting on reputation and warm up '
+                    'rising ones.</div>', unsafe_allow_html=True)
+        try:
+            st.markdown(strength_sources_html(build_strength_table(load_context().elo)),
+                        unsafe_allow_html=True)
+        except Exception:
+            st.info("Strength breakdown unavailable (check data/external/*_2026.csv).")
+
+        st.markdown('<div class="sec">4. Tournament realism, tuned against the market</div>',
+                    unsafe_allow_html=True)
+        st.markdown('<div class="prose">Treating ratings as exact truths makes a tournament '
                     'simulation overconfident, because a rating error follows a team through '
                     'all seven of its matches. We correct this by redrawing each team\'s '
-                    'strength around its rating once per simulated tournament. The width of '
-                    'that redraw was swept and compared against the betting market and the '
-                    'historical record of World Cup favourites, both around 15 to 20% for the '
-                    'top team. The sweep below is the published evidence.</div>',
+                    'strength around its rating once per simulated tournament. The width of that '
+                    'redraw is not chosen by eye: we sweep it and score the full simulated title '
+                    'distribution against the de-vigged betting market. Because the ratings '
+                    'already fold in the market, less artificial noise is needed than before. '
+                    'The sweep below is the published evidence.</div>',
                     unsafe_allow_html=True)
         sigma = load_csv(str(SIGMA_EVIDENCE))
         if sigma is not None:
@@ -817,7 +902,8 @@ def main() -> None:
         st.markdown(methodology_html(fav_team, fav_prob), unsafe_allow_html=True)
 
     st.markdown(
-        '<div class="foot"><b>Methodology.</b> Elo ratings built from the full match history feed a '
+        '<div class="foot"><b>Methodology.</b> A composite rating (Elo from the full match history, '
+        'blended with the de-vigged betting market and Transfermarkt squad value) feeds a '
         'calibrated logistic classifier and a Poisson goals model; the tournament is then simulated '
         '10,000 times over the official FIFA bracket with per-tournament rating uncertainty. '
         'The output is probabilities, never certainties.<br>'

@@ -18,19 +18,22 @@
 
 | # | Team | Champion | Reaches Final | Reaches Semifinal |
 |---|------|---------:|--------------:|------------------:|
-| 1 | 🇪🇸 Spain | **19.5%** | 29.8% | 43.0% |
-| 2 | 🇦🇷 Argentina | 14.4% | 23.5% | 35.3% |
-| 3 | 🇫🇷 France | 9.0% | 16.4% | 29.7% |
-| 4 | 🏴 England | 6.2% | 12.5% | 23.2% |
-| 5 | 🇧🇷 Brazil | 5.1% | 10.3% | 20.1% |
+| 1 | 🇪🇸 Spain | **15.8%** | 24.6% | 38.3% |
+| 2 | 🇫🇷 France | 11.3% | 18.8% | 31.5% |
+| 3 | 🇦🇷 Argentina | 10.9% | 18.2% | 30.1% |
+| 4 | 🏴 England | 9.2% | 16.4% | 27.3% |
+| 5 | 🇵🇹 Portugal | 6.5% | 12.6% | 23.3% |
 
-The favorite sits right in the band where the betting market and the historical record of
-World Cup favorites live (~15-20%) — by **calibration against external benchmarks**, not by
-eye. Each simulated tournament redraws every team's strength around its Elo rating
-(σ=125, see [ADR-005](docs/decisions/ADR-005-rating-uncertainty.md)), modeling the fact that
-ratings are estimates whose errors persist across a whole tournament. Football is
-**low-signal, high-variance**, and the model embraces that uncertainty rather than faking
-confidence.
+Team strength is a **composite rating** that fuses three signals on the Elo scale: 150 years of
+results (**Elo**), the **de-vigged betting market** (the most accurate public forecast there is),
+and **Transfermarkt squad value** (a current-players signal). This is what cools an over-rated
+side and warms an under-rated one — Argentina drops from its Elo-only 14.4% as the market and an
+ageing squad temper its rating, while France and England climb. The favorite tracks the market
+closely (Spain 15.8% vs ~15.8% market) — by **calibration against the market**, not by eye. Each
+simulated tournament also redraws every team's strength around its rating (σ=125, see
+[ADR-006](docs/decisions/ADR-006-composite-strength.md)), modeling the fact that ratings are
+estimates whose errors persist across a whole tournament. Football is **low-signal,
+high-variance**, and the model embraces that uncertainty rather than faking confidence.
 
 ## Why this project
 
@@ -41,21 +44,20 @@ of work that holds up under scrutiny.
 ## How it works
 
 ```
-results.csv (1872–2026)
-        │  clean + normalize
-        ▼
-   Elo ratings  ──►  match features (elo_diff, form, rest, neutral)
-        │                     │
-        │                     ▼
-        │            Logistic classifier  ── P(win/draw/loss), calibrated
-        │                     ▲
-        ▼                     │ cross-check (agree out-of-sample)
-   Poisson goals model ───────┘
-        │  scorelines
-        ▼
-   Monte Carlo × 10,000  (official FIFA 48-team bracket)
-        ▼
-   P(title) and P(reach each stage) per nation
+results.csv (1872–2026)          market odds + squad value (2026 snapshots)
+        │  clean + normalize               │
+        ▼                                   ▼
+   Elo ratings  ──────────►  COMPOSITE STRENGTH (Elo 45% · market 35% · squad 20%)
+        │                                   │
+        │                                   ├──►  match features ──► Logistic classifier
+        │                                   │                         P(win/draw/loss), calibrated
+        │                                   ▼                                   ▲
+        │                       Poisson goals model ───────────────────────────┘
+        │                                   │  scorelines        cross-check (agree out-of-sample)
+        ▼                                   ▼
+        └──────────►  Monte Carlo × 10,000  (official FIFA 48-team bracket)
+                                            ▼
+                          P(title) and P(reach each stage) per nation
 ```
 
 **Two complementary models, cross-validated against each other:**
@@ -70,12 +72,12 @@ strong evidence the pipeline is internally consistent.
 | Decision | Choice | Why |
 |---|---|---|
 | Data | [`martj42/international_results`](https://github.com/martj42/international_results) | Free, no auth, reproducible |
-| Team strength | Elo (an EWMA estimator) | Long-memory, leakage-safe, interpretable |
+| Team strength | **Composite**: Elo + de-vigged market + squad value | Fuses results, expert prior & current players ([ADR-006](docs/decisions/ADR-006-composite-strength.md)) |
 | Validation | **Temporal** split (train < 2022, test ≥ 2022) | No look-ahead bias |
 | Model | Logistic regression **over** gradient boosting | Parsimony: ties/beats GBDT, simpler & calibrated |
 | Scoring | Log loss, Brier, **RPS** | Proper scoring rules, not just accuracy |
 | Bracket | **Official** FIFA 2026 structure | Credible, matches reality |
-| Tournament realism | Per-tournament rating noise (σ=125) + data-fitted host advantage | Corrects correlated-error overconfidence; calibrated vs market & history |
+| Tournament realism | Per-tournament rating noise (σ=125) + data-fitted host advantage | Corrects correlated-error overconfidence; σ fit to the full market title distribution |
 | Consistency guard | Results sidecar (`simulation_results.meta.json`) | Dashboard verifies cached numbers match the live engine |
 
 Full rationale lives in [`docs/decisions/`](docs/decisions/) as Architecture Decision Records.
@@ -162,19 +164,21 @@ model files) are committed, so Streamlit Cloud can boot it directly.
 - **Proper scoring rules:** evaluated with log loss, multiclass Brier, and RPS — not accuracy alone.
 - **Calibration:** verified with a reliability diagram.
 - **Internal consistency:** the independent classifier and Poisson models agree out-of-sample.
-- **Tests:** 14 passing invariants (Elo zero-sum, distribution sums, one-champion-per-tournament, …).
+- **Tests:** 21 passing invariants (Elo zero-sum, composite stays on scale, distribution sums, one-champion-per-tournament, …).
 
 ## Honest limitations
-- Team-level only — no squad/injury/player data.
-- Hosts modeled on neutral ground (no home-crowd boost) — a documented refinement.
+- Reads squad value, not the team sheet — day-of injuries, suspensions and lineups are invisible.
+- Market & squad snapshots are curated (dated, reproducible) and go stale; they are trivially updatable.
+- Host advantage applied only in the hosts' own group games; knockout venues are treated as neutral.
 - Independent Poisson slightly under-models draws (Dixon-Coles is the planned v2 fix).
 - Deep group tie-breaks resolved by lot, as in the real rules.
 
 ## Roadmap
 - [x] Data pipeline, EDA, Elo, classifier, Poisson model, Monte Carlo, official bracket, tests
 - [x] Interactive Streamlit dashboard (`streamlit_app.py`)
-- [ ] *(v2)* Dixon-Coles draw correction & host-nation advantage
-- [ ] *(v2)* Compare model odds vs bookmaker-implied probabilities + Kelly staking (quant capstone)
+- [x] Composite strength: Elo blended with the betting market and squad value ([ADR-006](docs/decisions/ADR-006-composite-strength.md))
+- [ ] *(v2)* Dixon-Coles draw correction
+- [ ] *(v2)* Bookmaker-implied probabilities + Kelly staking (quant capstone)
 
 ---
 
@@ -184,15 +188,18 @@ Pipeline de *machine learning* **reproducible y explicable** que estima la proba
 que cada selección gane el **Mundial 2026**, a partir de 150+ años de resultados y una
 simulación **Monte Carlo de 10.000 torneos** sobre el cuadro oficial.
 
-**Resultado principal:** 🇪🇸 España **19.5%** · 🇦🇷 Argentina 14.4% · 🇫🇷 Francia 9.0% ·
-🏴 Inglaterra 6.2% · 🇧🇷 Brasil 5.1%. El favorito queda en la banda del mercado de apuestas y
-del registro histórico (~15-20%), calibrado contra benchmarks externos y no "al ojo",
-reflejando con honestidad la alta varianza del fútbol.
+**Resultado principal:** 🇪🇸 España **15.8%** · 🇫🇷 Francia 11.3% · 🇦🇷 Argentina 10.9% ·
+🏴 Inglaterra 9.2% · 🇵🇹 Portugal 6.5%. El favorito sigue al mercado de apuestas casi exacto
+(España ~15.8%), calibrado contra el mercado y no "al ojo", reflejando con honestidad la alta
+varianza del fútbol.
 
-**Cómo funciona:** se calcula un **Elo** (fuerza histórica) de cada selección → alimenta un
-**clasificador logístico calibrado** (victoria/empate/derrota) y un **modelo de goles de
+**Cómo funciona:** cada selección recibe una **fuerza compuesta** que mezcla tres señales en la
+escala Elo: 150 años de resultados (**Elo**), el **mercado de apuestas** sin margen (el
+pronóstico público más preciso) y el **valor de plantel** de Transfermarkt (los jugadores
+actuales). Esa fuerza alimenta un **clasificador logístico calibrado** y un **modelo de goles de
 Poisson** que genera marcadores → se simula el torneo 10.000 veces con el **cuadro oficial de
-FIFA** → se leen las probabilidades de campeón y de llegar a cada fase.
+FIFA** → se leen las probabilidades de campeón y de llegar a cada fase. Esto enfría a equipos
+sobrevalorados (Argentina baja de 14.4%) y calienta a los subvalorados.
 
 **El punto clave:** el objetivo no es adivinar al campeón, sino demostrar un proceso de ciencia
 de datos **riguroso, explicable y reproducible**, honesto sobre la incertidumbre. Las decisiones

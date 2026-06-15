@@ -86,6 +86,27 @@ def _shootout_winner(
     return team_a if rng.random() < prob_a else team_b
 
 
+def knockout_win_prob(
+    team_a: str, team_b: str, ratings: dict[str, float], params: GoalsParams,
+) -> float:
+    """Probability that ``team_a`` advances from a knockout against ``team_b``.
+
+    Closed-form (no sampling): regulation is two independent Poissons; a level game goes to a
+    shootout won in proportion to each side's regulation win-strength (the same rule the sampler
+    in ``_shootout_winner`` uses). So
+        P(a advances) = P(a wins) + P(draw) * P(a wins) / [P(a wins) + P(b wins)].
+    """
+    lam_a = params.lam(ratings[team_a] - ratings[team_b])
+    lam_b = params.lam(ratings[team_b] - ratings[team_a])
+    g = np.arange(11)
+    joint = np.outer(poisson.pmf(g, lam_a), poisson.pmf(g, lam_b))
+    p_a = float(np.tril(joint, -1).sum())   # a scores more
+    p_b = float(np.triu(joint, 1).sum())    # b scores more
+    p_draw = float(np.trace(joint))
+    shoot_a = 0.5 if (p_a + p_b) == 0 else p_a / (p_a + p_b)
+    return p_a + p_draw * shoot_a
+
+
 def knockout_winner(
     team_a: str, team_b: str, ratings: dict[str, float],
     params: GoalsParams, rng: np.random.Generator,

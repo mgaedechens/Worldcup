@@ -3,7 +3,9 @@
 import numpy as np
 
 from src.models.goals import implied_outcome_probs
-from src.simulation.engine import GoalsParams, knockout_winner, simulate_scoreline
+from src.simulation.engine import (
+    GoalsParams, knockout_win_prob, knockout_winner, simulate_scoreline,
+)
 
 
 def test_lambda_positive_and_monotonic():
@@ -37,3 +39,16 @@ def test_knockout_returns_one_of_the_two():
     rng = np.random.default_rng(0)
     ratings = {"A": 1800, "B": 1500}
     assert knockout_winner("A", "B", ratings, p, rng) in ("A", "B")
+
+
+def test_knockout_win_prob_is_complementary_and_favours_the_stronger():
+    p = GoalsParams(0.1, 0.001, 0.0)
+    ratings = {"A": 1800, "B": 1500}
+    pa = knockout_win_prob("A", "B", ratings, p)
+    pb = knockout_win_prob("B", "A", ratings, p)
+    # Sums to 1 up to the Poisson grid truncation (goals capped at 10).
+    assert abs((pa + pb) - 1.0) < 1e-6   # someone always advances
+    assert pa > 0.5                       # the stronger team is favoured
+    # Equal ratings give a coin flip.
+    even = knockout_win_prob("A", "B", {"A": 1700, "B": 1700}, p)
+    assert abs(even - 0.5) < 1e-6

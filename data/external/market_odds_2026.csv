@@ -1,0 +1,26 @@
+# Bookmaker outright-winner odds for the 2026 World Cup (decimal), consensus across books.
+# Curated snapshot retrieved 2026-06-15 from public odds aggregators (Oddspedia, Goal.com,
+# ToffeeWeb / BettingOdds.com UK). Only teams with meaningful quoted title odds are listed;
+# every other team is a deep longshot the books do not price individually, so the composite
+# rating falls back to Elo + squad value for them.
+#
+# Why use the market: bookmaker odds are the single most accurate public forecast of football
+# outcomes (they aggregate injuries, form, squad news and sharp money). Treating the de-vigged
+# market as a near-efficient prior and anchoring team strengths to it makes the whole bracket
+# market-consistent instead of Elo-only. Odds carry an overround (vig) removed in code; we also
+# assume the listed favourites hold ~90% of the true title probability (the long tail of 35
+# unpriced minnows holds the rest). See src/features/strength.py and docs/decisions/ADR-006.
+team,decimal_odds
+Spain,5.5
+France,6.0
+England,7.5
+Argentina,9.0
+Brazil,9.0
+Portugal,9.5
+Germany,15.0
+Netherlands,21.0
+Norway,34.0
+Colombia,41.0
+United States,47.0
+Japan,51.0
+Morocco,51.0

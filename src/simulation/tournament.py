@@ -6,13 +6,14 @@ runner can aggregate stage-reach and title probabilities.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from src.features.elo import compute_elo
+from src.features.strength import StrengthWeights, compose_strength
 from src.simulation.bracket import (
     FINAL_MATCH, QUARTERFINALS, ROUND_OF_16, ROUND_OF_32, SEMIFINALS,
     assign_thirds_to_slots, label_groups_official,
@@ -42,7 +43,8 @@ STRENGTH_NOISE = 125.0
 class Context:
     """Everything needed to simulate, loaded once and reused across Monte Carlo runs."""
 
-    ratings: dict[str, float]                  # current Elo for the 48 teams
+    ratings: dict[str, float]                  # composite strength (Elo scale) — drives the sim
+    elo: dict[str, float]                       # raw Elo, kept for reference/breakdown display
     groups: dict[str, list[str]]               # official letter -> 4 teams
     # letter -> 6 fixtures as (home, away, home_is_host): the last flag is 1 only when the
     # dataset marks the venue as non-neutral (hosts USA/Canada/Mexico playing at home).
@@ -51,6 +53,7 @@ class Context:
     hosts: frozenset[str] = HOST_NATIONS       # teams eligible for a host boost
     host_bonus: float = 0.0                    # extra flat Elo for hosts (sensitivity knob)
     strength_noise: float = STRENGTH_NOISE     # per-tournament rating uncertainty (Elo pts)
+    weights: StrengthWeights = field(default_factory=StrengthWeights)  # signal blend used
 
     def effective_ratings(self) -> dict[str, float]:
         """Ratings with the optional host boost folded in (sensitivity analyses)."""
@@ -67,10 +70,15 @@ class Context:
         return {t: r + rng.normal(0.0, self.strength_noise) for t, r in base.items()}
 
 
-def build_context() -> Context:
-    """Load current Elo, official groups, and the group fixture list."""
+def build_context(weights: StrengthWeights | None = None) -> Context:
+    """Load current Elo, fold in the market + squad-value signals, and the fixture list.
+
+    The simulation is driven by the *composite* strength (Elo blended with the de-vigged
+    betting market and Transfermarkt squad value); raw Elo is kept on the side for display.
+    """
+    weights = weights or StrengthWeights()
     matches = pd.read_csv(PROCESSED_DIR / "matches_clean.csv", parse_dates=["date"])
-    ratings = compute_elo(matches).final_ratings
+    elo = compute_elo(matches).final_ratings
 
     groups_raw = pd.read_csv(EXTERNAL_DIR / "wc2026_groups.csv")
     reconstructed = {g: sub["team"].tolist() for g, sub in groups_raw.groupby("group")}
@@ -87,7 +95,12 @@ def build_context() -> Context:
             # the goals model, whose home-advantage coefficient was FIT on 150y of data.
             group_fixtures[g].append((home, away, int(not neu)))
 
-    return Context(ratings, groups, group_fixtures, load_goals_params())
+    # Composite strength over the 48 qualified teams (Elo + market + squad value).
+    qualified_elo = {t: elo[t] for teams in groups.values() for t in teams if t in elo}
+    ratings = compose_strength(qualified_elo, weights=weights)
+
+    return Context(ratings, qualified_elo, groups, group_fixtures, load_goals_params(),
+                   weights=weights)
 
 
 def _rank_group(teams, stats, rng):

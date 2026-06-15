@@ -38,6 +38,51 @@
 
 ## Últimos cambios
 
+### Fecha: 2026-06-15 (entrada 9 — fuerza compuesta: Elo + mercado + valor de plantel) ✅
+**Agente:** Claude Code (Sonnet 4.6)
+
+**Origen:** el usuario reportó que el bracket "se veía imposible" y pidió un modelo "mucho más
+estadístico, que use los jugadores actuales". Diagnóstico: las probabilidades agregadas ya eran
+creíbles, pero el motor era **solo-Elo** (delgado) y un bracket individual siempre contiene
+upsets que parecen absurdos. Decisión acordada: anclar al mercado + sumar fuerza de plantel +
+mejorar la presentación (alcance "sólido y realista, datos gratis").
+
+**Cambios (ver ADR-006):**
+- **Rating compuesto** (`src/features/strength.py`): fusiona 3 señales en la escala Elo →
+  **Elo 45% · mercado 35% · valor de plantel 20%** (pesos renormalizados si falta una señal).
+  - Mercado: cuotas de campeón de-vigadas (se asume que los ~13 equipos cotizados tienen ~90%
+    de la masa de título). Datos reales: `data/external/market_odds_2026.csv`.
+  - Plantel: valor Transfermarkt (log), los 48 equipos. `data/external/squad_value_2026.csv`.
+  - Ambos CSVs son **snapshots curados** con fuente + fecha (2026-06-15), reproducibles.
+- **Motor:** `build_context()` ahora calcula la fuerza compuesta y la usa para conducir TODOS
+  los partidos; `Context` ganó el campo `elo` (Elo crudo, para display). El CSV de resultados
+  trae columnas `elo` y `strength`.
+- **σ recalibrado contra el mercado** (`scripts/calibrate_sigma.py` reescrito): ahora puntúa la
+  distribución completa de campeón simulada vs la del mercado (SSE). Hallazgo: como los ratings
+  ya incorporan el mercado, hace falta MENOS ruido; SSE plano en σ=75–125. **Se mantiene σ=125**
+  (reproduce el favorito del mercado casi exacto y preserva varianza de eliminatorias).
+- **Dashboard:** simulador de partidos y podio ahora leen la fuerza compuesta (consistencia);
+  nueva sección en Validation "3. Where each team's strength comes from" (tabla Elo→mercado→
+  plantel→compuesto, vía `build_strength_table`); copy de metodología/hero/footer actualizado;
+  `sigma_table_html` adaptado a las nuevas columnas (vs-market SSE/MAE).
+- **Resultados nuevos (10k, seed 42):** España 15.8% · Francia 11.3% · Argentina 10.9% ·
+  Inglaterra 9.2% · Portugal 6.5% · Brasil 6.4%. Argentina baja de 14.4% (mercado + plantel
+  envejecido la enfrían); Francia/Inglaterra suben. Alineado con el mercado real.
+- **Tests:** 21/21 (nuevo `tests/test_strength.py`, 5 tests). Ruff limpio. AppTest 7 tabs sin
+  excepción y sin warnings (guardia del sidecar verde).
+
+**Próximos pasos sugeridos:**
+1. Re-ejecutar notebooks 04/05 bajo el motor compuesto (quedaron con el motor anterior).
+2. v2: Dixon-Coles; cuotas reales + Kelly como capstone quant.
+
+**Notas para el siguiente agente:**
+- Fuente única de verdad sigue siendo el motor; tras tocar `strength.py`/pesos/σ o los CSVs de
+  `data/external/*_2026.csv`, RE-CORRER `python scripts/calibrate_sigma.py` (opcional) y
+  `python -m src.simulation.montecarlo` (la guardia del sidecar avisa si se olvida).
+- Los pesos del blend viven en `StrengthWeights` (tournament.py los pasa por `Context.weights`).
+
+---
+
 ### Fecha: 2026-06-12 (entrada 8 — auditoría de consistencia + realismo calibrado + Validation tab) ✅
 **Agente:** Claude Code (Fable 5)
 

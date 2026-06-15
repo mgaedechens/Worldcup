@@ -61,7 +61,8 @@ def run_montecarlo(
         rows.append({
             "team": team,
             "group": team_to_group[team],
-            "elo": round(ctx.ratings[team]),
+            "elo": round(ctx.elo[team]),
+            "strength": round(ctx.ratings[team]),
             **{stage: probs[i] for i, stage in enumerate(STAGES)},
         })
     df = pd.DataFrame(rows).sort_values("Champion", ascending=False).reset_index(drop=True)

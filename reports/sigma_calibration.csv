@@ -1,6 +1,8 @@
-sigma,favorite,favorite_prob,second,second_prob,top4_prob_sum,mexico_prob,n_sims,seconds
-0,Spain,0.263,Argentina,0.188,0.6382,0.0195,4000,4.4
-75,Spain,0.2378,Argentina,0.1798,0.5755,0.015,4000,7.4
-100,Spain,0.2088,Argentina,0.1618,0.5408,0.018,4000,8.7
-125,Spain,0.1932,Argentina,0.1475,0.5015,0.0243,4000,7.0
-150,Spain,0.1732,Argentina,0.124,0.4598,0.0243,4000,7.3
+sigma,favorite,favorite_prob,market_favorite_prob,vs_market_sse,vs_market_mae,n_sims,seconds
+0,Spain,0.228,0.1577,0.00854,0.01929,5000,12.3
+75,Spain,0.1794,0.1577,0.00298,0.01263,5000,16.5
+100,Spain,0.176,0.1577,0.00376,0.01397,5000,15.3
+125,Spain,0.1596,0.1577,0.00346,0.01267,5000,12.9
+150,Spain,0.1506,0.1577,0.00518,0.01481,5000,14.0
+175,Spain,0.1228,0.1577,0.0072,0.01748,5000,15.6
+200,Spain,0.1158,0.1577,0.0087,0.01904,5000,13.5

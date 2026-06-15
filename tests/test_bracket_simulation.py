@@ -41,7 +41,8 @@ def _synthetic_context() -> Context:
         letter: [(teams[i], teams[j], 0) for i in range(4) for j in range(i + 1, 4)]
         for letter, teams in groups.items()
     }
-    return Context(ratings, groups, group_fixtures, GoalsParams(0.1, 0.001, 0.0))
+    # elo == ratings here: the synthetic context has no external market/squad data to blend.
+    return Context(ratings, dict(ratings), groups, group_fixtures, GoalsParams(0.1, 0.001, 0.0))
 
 
 def test_tournament_has_exactly_one_champion_and_32_qualifiers():
